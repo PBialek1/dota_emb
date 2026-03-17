@@ -4,10 +4,13 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 
 import requests
 
 from constants import STRATZ_GRAPHQL_URL, STRATZ_API_BASE
+
+_HERE = Path(__file__).parent
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +153,7 @@ class StratzClient:
         """
         Return {heroId: heroName} map, fetched from STRATZ constants and cached locally.
         """
-        cache_path = "hero_names.json"
+        cache_path = str(_HERE / "hero_names.json")
         if os.path.exists(cache_path):
             with open(cache_path, "r", encoding="utf-8") as fh:
                 self._hero_cache = {int(k): v for k, v in json.load(fh).items()}

@@ -19,6 +19,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+_PROJECT_ROOT = Path(__file__).parent.parent
+
 import requests
 
 OPENDOTA_BASE = "https://api.opendota.com/api"
@@ -279,8 +281,9 @@ def main() -> None:
         max_rank = args.max_rank
         bracket_label = f"{min_rank}-{max_rank}"
 
-    out_path = Path(args.output) if args.output else Path(
-        f"data/match_lists/match_ids_{args.patch.replace('.', '')}_{bracket_label}.txt"
+    out_path = Path(args.output) if args.output else (
+        _PROJECT_ROOT / "data" / "match_lists" /
+        f"match_ids_{args.patch.replace('.', '')}_{bracket_label}.txt"
     )
 
     logger.info(

@@ -13,6 +13,11 @@ import os
 import sys
 from pathlib import Path
 
+# Allow bare imports of sibling modules (constants, store, etc.)
+sys.path.insert(0, str(Path(__file__).parent))
+
+_PROJECT_ROOT = Path(__file__).parent.parent
+
 from tqdm import tqdm
 
 from dotenv import load_dotenv
@@ -31,8 +36,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-FAILED_LOG  = "data/failed_matches.txt"
-SKIPPED_LOG = "data/skipped_matches.txt"
+FAILED_LOG  = str(_PROJECT_ROOT / "data" / "failed_matches.txt")
+SKIPPED_LOG = str(_PROJECT_ROOT / "data" / "skipped_matches.txt")
 
 
 # ---------------------------------------------------------------------------
