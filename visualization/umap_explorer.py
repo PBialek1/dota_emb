@@ -213,8 +213,16 @@ def load_sqlite_store(db_path: Path, max_players: int | None) -> pd.DataFrame:
 # Feature matrix
 # ---------------------------------------------------------------------------
 
+# Expanded timeseries column names (e.g. "goldNorm_0" … "goldNorm_9")
+_TS_COLS = {
+    f"{feat}_{i}"
+    for feat in TS_FEATURES + EVENT_FEATURES + PROX_FEATURES
+    for i in range(10)
+}
+
+
 def build_feature_matrix(df: pd.DataFrame) -> np.ndarray:
-    skip = set(LABEL_COLS) | {"matchId"}
+    skip = set(LABEL_COLS) | {"matchId"} | _TS_COLS
     feature_cols = [c for c in df.columns if c not in skip]
     X = df[feature_cols].values.astype(np.float32)
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)

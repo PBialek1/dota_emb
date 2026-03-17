@@ -4,6 +4,10 @@ Usage:
     python training/train.py --data ./data/matches
     python training/train.py --data ./data/matches.db --epochs 200 --batch-size 512
     python training/train.py --data ./data/matches --embed-dim 128 --temperature 0.1
+
+Resuming a stopped run:
+    python training/train.py --data ./data/matches --resume ./checkpoints/checkpoint_best.pt
+    python training/train.py --data ./data/matches --resume ./checkpoints/checkpoint_epoch_050.pt --epochs 200
 """
 
 from __future__ import annotations
@@ -63,6 +67,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed",         type=int,   default=42)
     parser.add_argument("--log-interval", type=int,   default=10,
                         help="Print training loss every N batches (default: 10).")
+    parser.add_argument("--resume",       type=str,   default=None,
+                        help="Path to a checkpoint file to resume training from.")
     return parser.parse_args()
 
 
@@ -136,21 +142,20 @@ def main() -> None:
     )
     logger.info("Split: %d train / %d val", n_train, n_val)
 
-    # Fit normalizers on training data only
-    dataset.fit_normalizers(list(train_subset.indices))
-
-    # Save scalar normalizer separately for inference use
-    scaler_path = save_dir / "scalar_scaler.pkl"
-    with open(scaler_path, "wb") as fh:
-        pickle.dump(
-            {
-                "scalar_scaler": dataset.scalar_scaler,
-                "ts_mean":       dataset.ts_mean,
-                "ts_std":        dataset.ts_std,
-            },
-            fh,
-        )
-    logger.info("Saved normalizers to %s", scaler_path)
+    # Fit normalizers on training data only (skipped when resuming — loaded from checkpoint)
+    if not args.resume:
+        dataset.fit_normalizers(list(train_subset.indices))
+        scaler_path = save_dir / "scalar_scaler.pkl"
+        with open(scaler_path, "wb") as fh:
+            pickle.dump(
+                {
+                    "scalar_scaler": dataset.scalar_scaler,
+                    "ts_mean":       dataset.ts_mean,
+                    "ts_std":        dataset.ts_std,
+                },
+                fh,
+            )
+        logger.info("Saved normalizers to %s", scaler_path)
 
     # ------------------------------------------------------------------
     # DataLoaders
@@ -189,12 +194,38 @@ def main() -> None:
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info("Model parameters: %d", n_params)
 
+    start_epoch   = 1
     best_val_loss = float("inf")
+
+    # ------------------------------------------------------------------
+    # Resume from checkpoint
+    # ------------------------------------------------------------------
+    if args.resume:
+        ckpt_path = Path(args.resume)
+        if not ckpt_path.exists():
+            logger.error("Checkpoint not found: %s", ckpt_path)
+            sys.exit(1)
+        ckpt = torch.load(ckpt_path, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        start_epoch = ckpt["epoch"] + 1
+        best_val_loss = ckpt.get("val_loss", float("inf"))
+        # Restore normalizers from checkpoint so the same split/scaler is used
+        dataset.ts_mean       = ckpt["ts_mean"]
+        dataset.ts_std        = ckpt["ts_std"]
+        dataset.scalar_scaler = ckpt["scalar_scaler"]
+        # Fast-forward the scheduler to match the resumed epoch
+        for _ in range(ckpt["epoch"]):
+            scheduler.step()
+        logger.info(
+            "Resumed from %s (epoch %d, val_loss=%.4f)",
+            ckpt_path, ckpt["epoch"], best_val_loss,
+        )
 
     # ------------------------------------------------------------------
     # Training loop
     # ------------------------------------------------------------------
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         t0 = time.time()
 
         # Train
