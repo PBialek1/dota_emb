@@ -1,0 +1,861 @@
+// {
+  // __type(name: "MatchPlayerPlaybackDataType") {
+    // fields {
+      // name
+      // type {
+        // fields { name }
+        // ofType {
+          // fields { name }
+          // ofType {
+            // fields { name }
+          // }
+        // }
+      // }
+    // }
+  // }
+// }
+
+{
+  "data": {
+    "__type": {
+      "fields": [
+        {
+          "name": "abilityLearnEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "abilityId"
+                },
+                {
+                  "name": "levelObtained"
+                },
+                {
+                  "name": "level"
+                },
+                {
+                  "name": "isUltimate"
+                },
+                {
+                  "name": "isTalent"
+                },
+                {
+                  "name": "isMaxLevel"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "abilityUsedEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "abilityId"
+                },
+                {
+                  "name": "attacker"
+                },
+                {
+                  "name": "target"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "abilityActiveLists",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "ability0"
+                },
+                {
+                  "name": "ability1"
+                },
+                {
+                  "name": "ability2"
+                },
+                {
+                  "name": "ability3"
+                },
+                {
+                  "name": "ability4"
+                },
+                {
+                  "name": "ability5"
+                },
+                {
+                  "name": "ability6"
+                },
+                {
+                  "name": "ability7"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "itemUsedEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "itemId"
+                },
+                {
+                  "name": "attacker"
+                },
+                {
+                  "name": "target"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "playerUpdatePositionEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "x"
+                },
+                {
+                  "name": "y"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "playerUpdateGoldEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "gold"
+                },
+                {
+                  "name": "unreliableGold"
+                },
+                {
+                  "name": "networth"
+                },
+                {
+                  "name": "networthDifference"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "playerUpdateAttributeEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "agi"
+                },
+                {
+                  "name": "int"
+                },
+                {
+                  "name": "str"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "playerUpdateLevelEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "level"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "playerUpdateHealthEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "hp"
+                },
+                {
+                  "name": "maxHp"
+                },
+                {
+                  "name": "mp"
+                },
+                {
+                  "name": "maxMp"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "playerUpdateBattleEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "damageMinMax"
+                },
+                {
+                  "name": "damageBonus"
+                },
+                {
+                  "name": "hpRegen"
+                },
+                {
+                  "name": "mpRegen"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "killEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "attacker"
+                },
+                {
+                  "name": "isFromIllusion"
+                },
+                {
+                  "name": "target"
+                },
+                {
+                  "name": "byAbility"
+                },
+                {
+                  "name": "byItem"
+                },
+                {
+                  "name": "gold"
+                },
+                {
+                  "name": "xp"
+                },
+                {
+                  "name": "positionX"
+                },
+                {
+                  "name": "positionY"
+                },
+                {
+                  "name": "assist"
+                },
+                {
+                  "name": "isSolo"
+                },
+                {
+                  "name": "isGank"
+                },
+                {
+                  "name": "isInvisible"
+                },
+                {
+                  "name": "isSmoke"
+                },
+                {
+                  "name": "isTpRecently"
+                },
+                {
+                  "name": "isRuneEffected"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "deathEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "attacker"
+                },
+                {
+                  "name": "isFromIllusion"
+                },
+                {
+                  "name": "target"
+                },
+                {
+                  "name": "byAbility"
+                },
+                {
+                  "name": "byItem"
+                },
+                {
+                  "name": "goldFed"
+                },
+                {
+                  "name": "xpFed"
+                },
+                {
+                  "name": "timeDead"
+                },
+                {
+                  "name": "reliableGold"
+                },
+                {
+                  "name": "unreliableGold"
+                },
+                {
+                  "name": "positionX"
+                },
+                {
+                  "name": "positionY"
+                },
+                {
+                  "name": "goldLost"
+                },
+                {
+                  "name": "assist"
+                },
+                {
+                  "name": "isWardWalkThrough"
+                },
+                {
+                  "name": "isAttemptTpOut"
+                },
+                {
+                  "name": "isDieBack"
+                },
+                {
+                  "name": "isBurst"
+                },
+                {
+                  "name": "isEngagedOnDeath"
+                },
+                {
+                  "name": "hasHealAvailable"
+                },
+                {
+                  "name": "isTracked"
+                },
+                {
+                  "name": "isFeed"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "assistEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "attacker"
+                },
+                {
+                  "name": "target"
+                },
+                {
+                  "name": "gold"
+                },
+                {
+                  "name": "xp"
+                },
+                {
+                  "name": "subTime"
+                },
+                {
+                  "name": "positionX"
+                },
+                {
+                  "name": "positionY"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "csEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "attacker"
+                },
+                {
+                  "name": "isFromIllusion"
+                },
+                {
+                  "name": "npcId"
+                },
+                {
+                  "name": "byAbility"
+                },
+                {
+                  "name": "byItem"
+                },
+                {
+                  "name": "gold"
+                },
+                {
+                  "name": "xp"
+                },
+                {
+                  "name": "positionX"
+                },
+                {
+                  "name": "positionY"
+                },
+                {
+                  "name": "isCreep"
+                },
+                {
+                  "name": "isNeutral"
+                },
+                {
+                  "name": "isAncient"
+                },
+                {
+                  "name": "mapLocation"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "goldEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "amount"
+                },
+                {
+                  "name": "reason"
+                },
+                {
+                  "name": "npcId"
+                },
+                {
+                  "name": "isValidForStats"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "experienceEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "amount"
+                },
+                {
+                  "name": "reason"
+                },
+                {
+                  "name": "positionX"
+                },
+                {
+                  "name": "positionY"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "healEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "attacker"
+                },
+                {
+                  "name": "target"
+                },
+                {
+                  "name": "value"
+                },
+                {
+                  "name": "byAbility"
+                },
+                {
+                  "name": "byItem"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "heroDamageEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "attacker"
+                },
+                {
+                  "name": "target"
+                },
+                {
+                  "name": "value"
+                },
+                {
+                  "name": "byAbility"
+                },
+                {
+                  "name": "byItem"
+                },
+                {
+                  "name": "damageType"
+                },
+                {
+                  "name": "fromNpc"
+                },
+                {
+                  "name": "toNpc"
+                },
+                {
+                  "name": "fromIllusion"
+                },
+                {
+                  "name": "toIllusion"
+                },
+                {
+                  "name": "isPhysicalAttack"
+                },
+                {
+                  "name": "isSourceMainHero"
+                },
+                {
+                  "name": "isTargetMainHero"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "towerDamageEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "attacker"
+                },
+                {
+                  "name": "npcId"
+                },
+                {
+                  "name": "damage"
+                },
+                {
+                  "name": "byAbility"
+                },
+                {
+                  "name": "byItem"
+                },
+                {
+                  "name": "fromNpc"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "inventoryEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "item0"
+                },
+                {
+                  "name": "item1"
+                },
+                {
+                  "name": "item2"
+                },
+                {
+                  "name": "item3"
+                },
+                {
+                  "name": "item4"
+                },
+                {
+                  "name": "item5"
+                },
+                {
+                  "name": "backPack0"
+                },
+                {
+                  "name": "backPack1"
+                },
+                {
+                  "name": "backPack2"
+                },
+                {
+                  "name": "teleport0"
+                },
+                {
+                  "name": "neutral0"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "purchaseEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "itemId"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "buyBackEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "heroId"
+                },
+                {
+                  "name": "deathTimeRemaining"
+                },
+                {
+                  "name": "cost"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "streakEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "heroId"
+                },
+                {
+                  "name": "type"
+                },
+                {
+                  "name": "value"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "runeEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "rune"
+                },
+                {
+                  "name": "action"
+                },
+                {
+                  "name": "gold"
+                },
+                {
+                  "name": "positionX"
+                },
+                {
+                  "name": "positionY"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "spiritBearInventoryEvents",
+          "type": {
+            "fields": null,
+            "ofType": {
+              "fields": [
+                {
+                  "name": "time"
+                },
+                {
+                  "name": "item0"
+                },
+                {
+                  "name": "item1"
+                },
+                {
+                  "name": "item2"
+                },
+                {
+                  "name": "item3"
+                },
+                {
+                  "name": "item4"
+                },
+                {
+                  "name": "item5"
+                },
+                {
+                  "name": "backPack0"
+                },
+                {
+                  "name": "backPack1"
+                },
+                {
+                  "name": "backPack2"
+                },
+                {
+                  "name": "teleport0"
+                },
+                {
+                  "name": "neutral0"
+                }
+              ],
+              "ofType": null
+            }
+          }
+        }
+      ]
+    }
+  }
+}
