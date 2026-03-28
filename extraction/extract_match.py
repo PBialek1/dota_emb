@@ -29,11 +29,15 @@ from constants import LANING_SECONDS
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%H:%M:%S",
-)
+class _TqdmHandler(logging.Handler):
+    """Logging handler that routes through tqdm.write to avoid breaking progress bars."""
+    def emit(self, record: logging.LogRecord) -> None:
+        tqdm.write(self.format(record), file=sys.stderr)
+
+_handler = _TqdmHandler()
+_handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S"))
+logging.root.setLevel(logging.INFO)
+logging.root.handlers = [_handler]
 logger = logging.getLogger(__name__)
 
 FAILED_LOG  = str(_PROJECT_ROOT / "data" / "failed_matches.txt")

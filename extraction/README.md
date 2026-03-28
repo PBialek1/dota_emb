@@ -57,7 +57,7 @@ Failed/skipped matches are logged to `data/failed_matches.txt` and `data/skipped
 
 ## Output Schema
 
-Features cover the first 10 minutes (laning stage). All timeseries arrays have exactly 10 elements — one per minute.
+Features cover the first 10 minutes (laning stage). All timeseries arrays have exactly 40 elements — one per 15-second interval.
 
 ```json
 {
@@ -89,4 +89,6 @@ See the top-level README and `stratz_extraction_instructions.md` for full schema
 | `feature_builder.py` | Raw STRATZ response → feature dict |
 | `store.py` | Storage backends (JsonStore, SqliteStore) |
 | `constants.py` | Tower positions, map constants, shared geometry |
+| `backfill_positions.py` | Backfill missing position/lane assignments in the SQLite store |
+| `backfill_lane_outcomes.py` | Backfill missing lane outcome fields in the SQLite store |
 | `hero_names.json` | Cached hero ID → name map (auto-generated on first run) |

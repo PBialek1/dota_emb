@@ -3,7 +3,8 @@
 import logging
 
 from constants import (
-    LANING_MINUTES,
+    LANING_INTERVALS,
+    LANING_INTERVAL_SECONDS,
     LANING_SECONDS,
     ALLY_ENEMY_RADIUS,
     RADIANT_TOWERS,
@@ -18,9 +19,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _bucket(t: int) -> int | None:
-    """Return minute bucket index (0–9) for a timestamp in seconds, or None if out of range."""
+    """Return 15-second interval index (0–39) for a timestamp in seconds, or None if out of range."""
     if 0 <= t < LANING_SECONDS:
-        return t // 60
+        return t // LANING_INTERVAL_SECONDS
     return None
 
 
@@ -61,7 +62,7 @@ def _build_networth_curve(gold_events: list[dict]) -> list[float]:
     This is a state snapshot — forward-fill missing minutes.
     """
     events = _laning_events(gold_events)
-    buckets: list[float | None] = [None] * LANING_MINUTES
+    buckets: list[float | None] = [None] * LANING_INTERVALS
 
     for e in events:
         b = _bucket(e.get("time") or 0)
@@ -72,7 +73,7 @@ def _build_networth_curve(gold_events: list[dict]) -> list[float]:
 
     # Forward-fill
     last = 0.0
-    for i in range(LANING_MINUTES):
+    for i in range(LANING_INTERVALS):
         if buckets[i] is not None:
             last = buckets[i]
         else:
@@ -87,17 +88,17 @@ def _build_cumsum_curve(events: list[dict], value_key: str) -> list[float]:
     Used for XP, damage dealt, damage taken, tower damage, healing.
     """
     filtered = _laning_events(events)
-    per_min = [0.0] * LANING_MINUTES
+    per_interval = [0.0] * LANING_INTERVALS
 
     for e in filtered:
         b = _bucket(e.get("time") or 0)
         if b is not None:
-            per_min[b] += float(e.get(value_key) or 0)
+            per_interval[b] += float(e.get(value_key) or 0)
 
     # Running cumulative sum
     cumsum = []
     total = 0.0
-    for v in per_min:
+    for v in per_interval:
         total += v
         cumsum.append(total)
     return cumsum
@@ -106,16 +107,16 @@ def _build_cumsum_curve(events: list[dict], value_key: str) -> list[float]:
 def _build_cs_curve(cs_events: list[dict]) -> list[float]:
     """CS: count events per minute → running cumulative."""
     filtered = _laning_events(cs_events)
-    per_min = [0] * LANING_MINUTES
+    per_interval = [0] * LANING_INTERVALS
 
     for e in filtered:
         b = _bucket(e.get("time") or 0)
         if b is not None:
-            per_min[b] += 1
+            per_interval[b] += 1
 
     cumsum = []
     total = 0
-    for v in per_min:
+    for v in per_interval:
         total += v
         cumsum.append(float(total))
     return cumsum
@@ -137,8 +138,8 @@ def _build_state_curves(health_events: list[dict]) -> tuple[list[float], list[fl
 
     last_hp, last_mp = 1.0, 1.0
 
-    for n in range(LANING_MINUTES):
-        midpoint = n * 60 + 30
+    for n in range(LANING_INTERVALS):
+        midpoint = n * LANING_INTERVAL_SECONDS + LANING_INTERVAL_SECONDS // 2
         e = _closest_event(events, midpoint)
         if e and e.get("maxHp") and e["maxHp"] > 0:
             last_hp = e["hp"] / e["maxHp"]
@@ -163,8 +164,8 @@ def _position_snapshots(pos_events: list[dict]) -> list[tuple[float, float] | No
     snapshots: list[tuple[float, float] | None] = []
     last_pos: tuple[float, float] | None = None
 
-    for n in range(LANING_MINUTES):
-        midpoint = n * 60 + 30
+    for n in range(LANING_INTERVALS):
+        midpoint = n * LANING_INTERVAL_SECONDS + LANING_INTERVAL_SECONDS // 2
         e = _closest_event(events, midpoint)
         if e and e.get("x") is not None and e.get("y") is not None:
             last_pos = (float(e["x"]), float(e["y"]))
@@ -180,7 +181,7 @@ def _position_snapshots(pos_events: list[dict]) -> list[tuple[float, float] | No
 def _count_per_minute(events: list[dict]) -> list[int]:
     """Count events per minute bucket [N*60, (N+1)*60)."""
     filtered = _laning_events(events)
-    counts = [0] * LANING_MINUTES
+    counts = [0] * LANING_INTERVALS
     for e in filtered:
         b = _bucket(e.get("time") or 0)
         if b is not None:
@@ -206,14 +207,14 @@ def _compute_positional_features(
     list[list[int]],     # enemiesNearby      [player][minute]
 ]:
     n_players = len(all_snapshots)
-    dist_ally   = [[0.0] * LANING_MINUTES for _ in range(n_players)]
-    dist_enemy  = [[0.0] * LANING_MINUTES for _ in range(n_players)]
-    dist_tower  = [[0.0] * LANING_MINUTES for _ in range(n_players)]
-    cnt_ally    = [[0]   * LANING_MINUTES for _ in range(n_players)]
-    cnt_enemy   = [[0]   * LANING_MINUTES for _ in range(n_players)]
+    dist_ally   = [[0.0] * LANING_INTERVALS for _ in range(n_players)]
+    dist_enemy  = [[0.0] * LANING_INTERVALS for _ in range(n_players)]
+    dist_tower  = [[0.0] * LANING_INTERVALS for _ in range(n_players)]
+    cnt_ally    = [[0]   * LANING_INTERVALS for _ in range(n_players)]
+    cnt_enemy   = [[0]   * LANING_INTERVALS for _ in range(n_players)]
 
-    for minute in range(LANING_MINUTES):
-        positions = [all_snapshots[p][minute] for p in range(n_players)]
+    for step in range(LANING_INTERVALS):
+        positions = [all_snapshots[p][step] for p in range(n_players)]
 
         for p in range(n_players):
             pos = positions[p]
@@ -233,17 +234,17 @@ def _compute_positional_features(
                 if radiant_flags[p] == radiant_flags[q]:
                     ally_dists.append(d)
                     if d <= ALLY_ENEMY_RADIUS:
-                        cnt_ally[p][minute] += 1
+                        cnt_ally[p][step] += 1
                 else:
                     enemy_dists.append(d)
                     if d <= ALLY_ENEMY_RADIUS:
-                        cnt_enemy[p][minute] += 1
+                        cnt_enemy[p][step] += 1
 
-            dist_ally[p][minute]  = round(min(ally_dists),  1) if ally_dists  else 0.0
-            dist_enemy[p][minute] = round(min(enemy_dists), 1) if enemy_dists else 0.0
+            dist_ally[p][step]  = round(min(ally_dists),  1) if ally_dists  else 0.0
+            dist_enemy[p][step] = round(min(enemy_dists), 1) if enemy_dists else 0.0
 
             towers = tower_lists[p]
-            dist_tower[p][minute] = round(min(euclidean(pos, t) for t in towers), 1)
+            dist_tower[p][step] = round(min(euclidean(pos, t) for t in towers), 1)
 
     return dist_ally, dist_enemy, dist_tower, cnt_ally, cnt_enemy
 
@@ -266,12 +267,15 @@ def build_match(
     Returns:
         dict with `meta` and `players` keys, ready for serialization.
     """
-    match_id       = match_node.get("id")
-    duration       = match_node.get("durationSeconds") or 0
-    did_radiant_win = match_node.get("didRadiantWin")
-    bracket        = match_node.get("bracket")
-    game_version   = match_node.get("gameVersionId")
-    avg_mmr        = match_node.get("averageRank")  # null if unavailable
+    match_id            = match_node.get("id")
+    duration            = match_node.get("durationSeconds") or 0
+    did_radiant_win     = match_node.get("didRadiantWin")
+    bracket             = match_node.get("bracket")
+    game_version        = match_node.get("gameVersionId")
+    avg_mmr             = match_node.get("averageRank")  # null if unavailable
+    bottom_lane_outcome = match_node.get("bottomLaneOutcome")
+    mid_lane_outcome    = match_node.get("midLaneOutcome")
+    top_lane_outcome    = match_node.get("topLaneOutcome")
 
     players_raw = match_node.get("players") or []
 
@@ -404,12 +408,15 @@ def build_match(
 
     return {
         "meta": {
-            "matchId":         match_id,
-            "durationSeconds": duration,
-            "didRadiantWin":   did_radiant_win,
-            "avgMmr":          avg_mmr,
-            "bracket":         bracket,
-            "gameVersionId":   game_version,
+            "matchId":            match_id,
+            "durationSeconds":    duration,
+            "didRadiantWin":      did_radiant_win,
+            "avgMmr":             avg_mmr,
+            "bracket":            bracket,
+            "gameVersionId":      game_version,
+            "bottomLaneOutcome":  bottom_lane_outcome,
+            "midLaneOutcome":     mid_lane_outcome,
+            "topLaneOutcome":     top_lane_outcome,
         },
         "players": players_out,
     }

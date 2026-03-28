@@ -2,7 +2,7 @@
 
 SimCLR contrastive representation learning on Dota 2 laning-stage feature vectors.
 
-Each player's laning phase is represented as 18 feature channels × 10 minute buckets, plus 7 scalar statistics. The model learns an embedding space where players with similar laning behaviors are close together, without any supervised labels.
+Each player's laning phase is represented as 18 feature channels × 40 × 15-second buckets, plus 7 scalar statistics. The model learns an embedding space where players with similar laning behaviors are close together, without any supervised labels.
 
 ---
 
@@ -14,10 +14,10 @@ Each player's laning phase is represented as 18 feature channels × 10 minute bu
 | Augmentation | Effect | Probability |
 |---|---|---|
 | Gaussian noise | Small i.i.d. perturbation | 0.8 |
-| Temporal shift | Roll channels ±1 minute step | 0.5 |
+| Temporal shift | Roll channels ±1 step (±15 s) | 0.5 |
 | Feature mask | Zero out random feature channels | 0.7 |
 | Scale jitter | Multiply continuous channels by ∈ [0.85, 1.15] | 0.6 |
-| Timestep dropout | Zero out up to 3 complete minute columns | 0.5 |
+| Timestep dropout | Zero out up to 3 complete timestep columns | 0.5 |
 
 Scalar features (maxGold, maxXp, …) are treated as invariant context and are not augmented.
 
@@ -26,7 +26,7 @@ Scalar features (maxGold, maxXp, …) are treated as invariant context and are n
 ## Architecture
 
 ```
-Input: ts (18, 10) + scalars (7,)
+Input: ts (18, 40) + scalars (7,)
           │                 │
    TimeseriesBranch    ScalarBranch
    Conv1d(18→64)       Linear(7→32)

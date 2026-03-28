@@ -5,8 +5,9 @@ import math
 STRATZ_GRAPHQL_URL = "https://api.stratz.com/graphql"
 STRATZ_API_BASE = "https://api.stratz.com/api/v1"
 
-LANING_MINUTES = 10
-LANING_SECONDS = 600
+LANING_INTERVALS        = 40   # number of timeseries buckets (one per 15 s)
+LANING_INTERVAL_SECONDS = 15   # seconds per bucket
+LANING_SECONDS          = 600  # total laning phase duration (seconds)
 # STRATZ position events use a compressed coordinate system.
 # Conversion from Dota 2 world units: STRATZ = (world + 8192) / 128
 # Empirically confirmed: Radiant fountain ≈ (74, 74), Dire fountain ≈ (180, 177).

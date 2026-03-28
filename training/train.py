@@ -178,7 +178,7 @@ def main() -> None:
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=(device.type == "cuda"),
-        drop_last=False,
+        drop_last=True,
     )
 
     # ------------------------------------------------------------------
@@ -254,9 +254,6 @@ def main() -> None:
         with torch.no_grad():
             for ts1, sc, ts2, _ in val_loader:
                 ts1, sc, ts2 = ts1.to(device), sc.to(device), ts2.to(device)
-                # Drop-last is False for val, so skip batches of size 1
-                if ts1.size(0) < 2:
-                    continue
                 _, z1 = model(ts1, sc)
                 _, z2 = model(ts2, sc)
                 val_losses.append(criterion(z1, z2).item())

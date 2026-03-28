@@ -27,6 +27,9 @@ query GetMatch($matchId: Long!) {
     bracket
     gameVersionId
     averageRank
+    bottomLaneOutcome
+    midLaneOutcome
+    topLaneOutcome
 
     players {
       steamAccountId
@@ -76,17 +79,18 @@ query GetMatch($matchId: Long!) {
 # ---------------------------------------------------------------------------
 
 class TokenBucket:
-    """Simple token bucket for rate limiting requests."""
+    """Token bucket for a single rate limit window."""
 
-    def __init__(self, rate_per_hour: int):
-        self._rate_per_sec: float = rate_per_hour / 3600.0
-        self._tokens: float = float(rate_per_hour)
+    def __init__(self, limit: int, window_seconds: float):
+        self._rate_per_sec: float = limit / window_seconds
+        self._tokens: float = float(limit)
+        self._capacity: float = float(limit)
         self._last_refill: float = time.monotonic()
 
     def _refill(self) -> None:
         now = time.monotonic()
         elapsed = now - self._last_refill
-        self._tokens = min(self._tokens + elapsed * self._rate_per_sec, 1.0 / self._rate_per_sec * 3600)
+        self._tokens = min(self._tokens + elapsed * self._rate_per_sec, self._capacity)
         self._last_refill = now
 
     def consume(self) -> None:
@@ -97,8 +101,19 @@ class TokenBucket:
                 self._tokens -= 1.0
                 return
             sleep_sec = (1.0 - self._tokens) / self._rate_per_sec
-            logger.debug("Rate limit: sleeping %.2fs", sleep_sec)
+            logger.debug("Rate limit: sleeping %.3fs", sleep_sec)
             time.sleep(sleep_sec)
+
+
+class MultiRateLimiter:
+    """Enforces multiple rate-limit windows simultaneously (all must have a token)."""
+
+    def __init__(self, *buckets: TokenBucket):
+        self._buckets = buckets
+
+    def consume(self) -> None:
+        for bucket in self._buckets:
+            bucket.consume()
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +130,11 @@ class StratzClient:
 
     def __init__(self, token: str, rate_per_hour: int = 280, max_retries: int = 3):
         self._token = token
-        self._bucket = TokenBucket(rate_per_hour)
+        self._bucket = MultiRateLimiter(
+            TokenBucket(20,             1),     # 20 req/second
+            TokenBucket(250,            60),    # 250 req/minute
+            TokenBucket(rate_per_hour,  3600),  # hourly (user-configurable)
+        )
         self._max_retries = max_retries
         self._session = requests.Session()
         self._session.headers.update(

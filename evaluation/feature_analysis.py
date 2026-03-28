@@ -21,6 +21,8 @@ Usage:
     python visualization/feature_analysis.py --data ./data/matches.db --top 20
     python visualization/feature_analysis.py --data ./data/matches --output-dir ./analysis
 """
+# import os
+# os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import argparse
 import json

@@ -9,8 +9,8 @@ A project for learning representations of Dota 2 player behavior during the lani
 | Directory | Description |
 |---|---|
 | [`extraction/`](extraction/README.md) | Fetch match IDs from OpenDota and extract per-player laning features from the STRATZ GraphQL API |
-| [`training/`](training/README.md) | Train embedding models on the extracted feature vectors |
-| [`visualization/`](visualization/README.md) | UMAP-based interactive explorer for inspecting learned representations |
+| [`training/`](training/README.md) | Train a SimCLR contrastive embedding model on the extracted feature vectors |
+| [`evaluation/`](evaluation/README.md) | UMAP visualization, embedding classifiers, and feature importance analysis |
 
 ---
 
@@ -30,8 +30,8 @@ data/
 ## Setup
 
 ```bash
-conda activate dota   # or your env of choice
-pip install requests python-dotenv tqdm umap-learn panel holoviews bokeh scikit-learn
+micromamba activate dota   # or: conda activate dota
+pip install requests python-dotenv tqdm torch umap-learn panel holoviews bokeh scikit-learn xgboost
 ```
 
 Create a `.env` file in the project root with your STRATZ token:

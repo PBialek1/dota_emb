@@ -5,7 +5,7 @@ Supports the same two storage backends as extraction/store.py:
   - SQLite store: .db file with `matches` + `players` tables
 
 Each sample is one player from one match. Returns (ts, scalars) tensors:
-  - ts     : FloatTensor shape (18, 10) — 18 feature channels × 10 minute buckets
+  - ts     : FloatTensor shape (18, 40) — 18 feature channels × 40 × 15-second buckets
   - scalars: FloatTensor shape (7,)     — match-level scalar statistics
 
 Channel order (18 total):
@@ -44,7 +44,7 @@ SCALAR_KEYS = ["maxGold", "maxXp", "maxDamageDealt", "maxDamageTaken",
                "maxCs", "maxTowerDamage", "maxHealing"]
 
 N_TS_CHANNELS = len(TS_KEYS) + len(EVENT_KEYS) + len(PROX_KEYS)  # 18
-N_TIMESTEPS   = 10
+N_TIMESTEPS   = 40
 N_SCALARS     = len(SCALAR_KEYS)  # 7
 
 # SQLite column name → feature name (mirrors extraction/store.py schema)
@@ -165,6 +165,9 @@ class LaningDataset(Dataset):
                 logger.warning("Skipping %s: %s", f.name, exc)
                 continue
             for player in data.get("players") or []:
+                sc_src = player.get("scalars") or {}
+                if not float(sc_src.get("maxGold") or 0):
+                    continue
                 ts, scalars = _parse_player_json(player)
                 self._ts_list.append(ts)
                 self._scalar_list.append(scalars)
@@ -173,7 +176,7 @@ class LaningDataset(Dataset):
         conn = sqlite3.connect(str(db_path))
         ts_cols    = list(_TS_DB_COLS.keys())
         scalar_cols = list(_SCALAR_DB_COLS.keys())
-        query = f"SELECT {', '.join(ts_cols + scalar_cols)} FROM players"
+        query = f"SELECT {', '.join(ts_cols + scalar_cols)} FROM players WHERE max_gold > 0"
         logger.info("Querying SQLite store %s …", db_path)
         try:
             cur = conn.execute(query)

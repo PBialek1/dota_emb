@@ -54,20 +54,46 @@ SCALAR_FEATURES = [
     "maxCs", "maxTowerDamage", "maxHealing",
 ]
 
-LABEL_COLS = ["position", "lane", "team", "isVictory", "heroName", "bracket"]
+LABEL_COLS = ["position", "lane", "team", "isVictory", "heroName", "bracket", "laneOutcome"]
 
 # Colour options shown in the widget, in display order
-COLOR_OPTIONS = ["position", "lane", "team", "isVictory", "heroName", "bracket"]
+COLOR_OPTIONS = ["position", "lane", "team", "isVictory", "laneOutcome", "heroName", "bracket"]
 
 # Bokeh categorical palette per colour dimension
 _CMAP = {
-    "position":  "Category10",
-    "lane":      "Category10",
-    "team":      "Category10",
-    "isVictory": "Category10",
-    "heroName":  "Category20",
-    "bracket":   "Category10",
+    "position":    "Category10",
+    "lane":        "Category10",
+    "team":        "Category10",
+    "isVictory":   "Category10",
+    "laneOutcome": "Category10",
+    "heroName":    "Category20",
+    "bracket":     "Category10",
 }
+
+
+def _derive_lane_outcome(lane: str, team: str, bottom: str | None, mid: str | None, top: str | None) -> str:
+    """Map match-level lane outcomes to the player's perspective (Win/Stomp/Loss/Tie)."""
+    if lane == "MID_LANE":
+        raw = mid
+    elif team == "RADIANT":
+        raw = bottom if lane == "SAFE_LANE" else top
+    else:  # DIRE
+        raw = top if lane == "SAFE_LANE" else bottom
+
+    if not raw or not isinstance(raw, str):
+        return "UNKNOWN"
+
+    if raw == "TIE":
+        return "Tie"
+
+    winning_team = "RADIANT" if raw.startswith("RADIANT") else "DIRE"
+    is_stomp     = raw.endswith("STOMP")
+    player_won   = (winning_team == team)
+
+    if player_won:
+        return "Stomp Win" if is_stomp else "Win"
+    else:
+        return "Stomp Loss" if is_stomp else "Loss"
 
 
 # ---------------------------------------------------------------------------
@@ -98,13 +124,21 @@ def _flatten_player_json(player: dict, meta: dict) -> dict:
         for i, v in enumerate(vals):
             row[f"{col}_{i}"] = float(v or 0)
 
-    row["position"]  = player.get("position")  or "UNKNOWN"
-    row["lane"]      = player.get("lane")       or "UNKNOWN"
-    row["team"]      = player.get("team")       or "UNKNOWN"
-    row["isVictory"] = "Win" if player.get("isVictory") else "Loss"
-    row["heroName"]  = player.get("heroName")   or "Unknown"
-    row["bracket"]   = str(meta.get("bracket")  or "Unknown")
-    row["matchId"]   = meta.get("matchId")
+    lane = player.get("lane") or "UNKNOWN"
+    team = player.get("team") or "UNKNOWN"
+    row["position"]    = player.get("position") or "UNKNOWN"
+    row["lane"]        = lane
+    row["team"]        = team
+    row["isVictory"]   = "Win" if player.get("isVictory") else "Loss"
+    row["heroName"]    = player.get("heroName")  or "Unknown"
+    row["bracket"]     = str(meta.get("bracket") or "Unknown")
+    row["laneOutcome"] = _derive_lane_outcome(
+        lane, team,
+        meta.get("bottomLaneOutcome"),
+        meta.get("midLaneOutcome"),
+        meta.get("topLaneOutcome"),
+    )
+    row["matchId"]     = meta.get("matchId")
     return row
 
 
@@ -176,7 +210,8 @@ def load_sqlite_store(db_path: Path, max_players: int | None) -> pd.DataFrame:
             p.dist_to_nearest_ally, p.dist_to_nearest_enemy, p.dist_to_nearest_tower,
             p.kills, p.deaths, p.assists, p.ability_casts,
             p.allies_nearby, p.enemies_nearby,
-            m.bracket, m.match_id
+            m.bracket, m.match_id,
+            m.bottom_lane_outcome, m.mid_lane_outcome, m.top_lane_outcome
         FROM players p
         JOIN matches m ON p.match_id = m.match_id
         {limit}
@@ -204,6 +239,16 @@ def load_sqlite_store(db_path: Path, max_players: int | None) -> pd.DataFrame:
     expanded["isVictory"] = df_raw["is_victory"].map({1: "Win", 0: "Loss"}).fillna("Unknown")
     expanded["heroName"]  = df_raw["hero_name"].fillna("Unknown")
     expanded["bracket"]   = df_raw["bracket"].fillna("Unknown").astype(str)
+    expanded["laneOutcome"] = [
+        _derive_lane_outcome(lane, team, bottom, mid, top)
+        for lane, team, bottom, mid, top in zip(
+            expanded["lane"],
+            expanded["team"],
+            df_raw["bottom_lane_outcome"],
+            df_raw["mid_lane_outcome"],
+            df_raw["top_lane_outcome"],
+        )
+    ]
     expanded["matchId"]   = df_raw["match_id"]
 
     return pd.DataFrame(expanded)
@@ -273,7 +318,7 @@ def make_app(df: pd.DataFrame, embedding: np.ndarray) -> pn.viewable.Viewable:
     )
 
     def _plot(color_by, alpha, size):
-        hover_cols = [color_by, "heroName", "lane", "team", "isVictory", "matchId"]
+        hover_cols = [color_by, "heroName", "lane", "team", "isVictory", "laneOutcome", "matchId"]
         # deduplicate while preserving order
         seen: set[str] = set()
         vdims: list[str] = []
@@ -293,8 +338,8 @@ def make_app(df: pd.DataFrame, embedding: np.ndarray) -> pn.viewable.Viewable:
                 alpha=alpha,
                 size=size,
                 tools=["hover", "box_select", "lasso_select", "reset"],
-                width=820,
-                height=640,
+                width=1000,
+                height=1000,
                 legend_position="right",
                 show_legend=True,
                 title=f"Laning UMAP — coloured by {color_by}",

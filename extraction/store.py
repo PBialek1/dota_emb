@@ -63,12 +63,16 @@ class JsonStore(MatchStore):
 
 _CREATE_MATCHES = """
 CREATE TABLE IF NOT EXISTS matches (
-    match_id          INTEGER PRIMARY KEY,
-    duration_seconds  INTEGER,
-    did_radiant_win   INTEGER,
-    avg_mmr           INTEGER,
-    bracket           INTEGER,
-    game_version_id   INTEGER
+    match_id            INTEGER PRIMARY KEY,
+    duration_seconds    INTEGER,
+    did_radiant_win     INTEGER,
+    avg_mmr             INTEGER,
+    bracket             INTEGER,
+    game_version_id     INTEGER,
+    bottom_lane_outcome   TEXT,
+    mid_lane_outcome      TEXT,
+    top_lane_outcome      TEXT,
+    lane_outcomes_fetched INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -117,9 +121,11 @@ CREATE TABLE IF NOT EXISTS players (
 
 _INSERT_MATCH = """
 INSERT OR IGNORE INTO matches
-    (match_id, duration_seconds, did_radiant_win, avg_mmr, bracket, game_version_id)
+    (match_id, duration_seconds, did_radiant_win, avg_mmr, bracket, game_version_id,
+     bottom_lane_outcome, mid_lane_outcome, top_lane_outcome, lane_outcomes_fetched)
 VALUES
-    (:match_id, :duration_seconds, :did_radiant_win, :avg_mmr, :bracket, :game_version_id);
+    (:match_id, :duration_seconds, :did_radiant_win, :avg_mmr, :bracket, :game_version_id,
+     :bottom_lane_outcome, :mid_lane_outcome, :top_lane_outcome, 1);
 """
 
 _INSERT_PLAYER = """
@@ -161,6 +167,17 @@ class SqliteStore(MatchStore):
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA foreign_keys=ON;")
         self._conn.executescript(_CREATE_MATCHES + _CREATE_PLAYERS)
+        # Migrate existing databases that predate lane outcome columns.
+        for col, definition in [
+            ("bottom_lane_outcome",   "TEXT"),
+            ("mid_lane_outcome",      "TEXT"),
+            ("top_lane_outcome",      "TEXT"),
+            ("lane_outcomes_fetched", "INTEGER NOT NULL DEFAULT 0"),
+        ]:
+            try:
+                self._conn.execute(f"ALTER TABLE matches ADD COLUMN {col} {definition}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
         self._conn.commit()
 
     def exists(self, match_id: int) -> bool:
@@ -173,12 +190,15 @@ class SqliteStore(MatchStore):
         meta = result["meta"]
 
         match_row = {
-            "match_id":         meta["matchId"],
-            "duration_seconds": meta["durationSeconds"],
-            "did_radiant_win":  int(bool(meta["didRadiantWin"])),
-            "avg_mmr":          meta.get("avgMmr"),
-            "bracket":          meta.get("bracket"),
-            "game_version_id":  meta.get("gameVersionId"),
+            "match_id":             meta["matchId"],
+            "duration_seconds":     meta["durationSeconds"],
+            "did_radiant_win":      int(bool(meta["didRadiantWin"])),
+            "avg_mmr":              meta.get("avgMmr"),
+            "bracket":              meta.get("bracket"),
+            "game_version_id":      meta.get("gameVersionId"),
+            "bottom_lane_outcome":  meta.get("bottomLaneOutcome"),
+            "mid_lane_outcome":     meta.get("midLaneOutcome"),
+            "top_lane_outcome":     meta.get("topLaneOutcome"),
         }
 
         player_rows = []
