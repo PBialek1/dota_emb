@@ -1,4 +1,4 @@
-"""embedding_classifier.py — Logistic regression + XGBoost classifiers on SimCLR embeddings.
+"""embedding_analysis.py — Logistic regression + XGBoost classifiers on SimCLR embeddings.
 
 Loads the trained encoder, encodes all players, then trains two classifiers
 (logistic regression and XGBoost) for each of:
@@ -10,11 +10,11 @@ Reports accuracy, classification report, and saves confusion-matrix PNGs to
 ./evaluation/analysis/ for each (target, model) combination.
 
 Usage:
-    python evaluation/embedding_classifier.py --data ./data/matches.db
-    python evaluation/embedding_classifier.py --data ./data/matches.db --checkpoint ./checkpoints/checkpoint_best.pt
-    python evaluation/embedding_classifier.py --data ./data/matches.db --max-players 20000
-    python evaluation/embedding_classifier.py --data ./data/matches.db --model xgb
-    python evaluation/embedding_classifier.py --data ./data/matches.db --model logreg
+    python evaluation/embedding_analysis.py --data ./data/matches.db
+    python evaluation/embedding_analysis.py --data ./data/matches.db --checkpoint ./checkpoints/checkpoint_best.pt
+    python evaluation/embedding_analysis.py --data ./data/matches.db --max-players 20000
+    python evaluation/embedding_analysis.py --data ./data/matches.db --model xgb
+    python evaluation/embedding_analysis.py --data ./data/matches.db --model logreg
 """
 
 from __future__ import annotations
@@ -207,7 +207,7 @@ def main() -> None:
     args = parse_args()
     data_path = Path(args.data)
     ckpt_path = Path(args.checkpoint)
-    out_dir = Path(__file__).parent / "analysis"
+    out_dir = Path(__file__).parent.parent / "figures"
     out_dir.mkdir(exist_ok=True)
 
     models = ["logreg", "xgb"] if args.model == "both" else [args.model]

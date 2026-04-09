@@ -94,11 +94,24 @@ _TS_COLS     = list(_TS_DB_COLS.keys())     # 18 timeseries DB column names
 _SCALAR_COLS = list(_SCALAR_DB_COLS.keys()) # 7 scalar DB column names
 
 
+def _normalise_positions(raw: list[str]) -> list[str]:
+    """Accept '1'-'5' or 'POSITION_1'-'POSITION_5' and return the canonical DB form."""
+    out = []
+    for v in raw:
+        v = v.strip()
+        if v.isdigit():
+            out.append(f"POSITION_{v}")
+        else:
+            out.append(v.upper())
+    return out
+
+
 def load_aligned(
     db_path: Path,
     max_players: int | None,
     ckpt: dict,
     heroes: list[str] | None = None,
+    positions: list[str] | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, pd.DataFrame]:
     """Single SQL query → (ts_tensor, scalar_tensor, labels_df) all in the same row order.
 
@@ -106,8 +119,8 @@ def load_aligned(
     the checkpoint's saved normalizers so features match training exactly.
 
     Args:
-        heroes: optional list of hero names to include (case-insensitive).
-                If None, all heroes are included.
+        heroes:    optional list of hero names to include (case-insensitive).
+        positions: optional list of positions to include (e.g. ['POSITION_4', 'POSITION_5']).
     """
     conn = sqlite3.connect(str(db_path))
     limit = f"LIMIT {max_players}" if max_players else ""
@@ -117,18 +130,24 @@ def load_aligned(
            "m.bracket", "m.match_id",
            "m.bottom_lane_outcome", "m.mid_lane_outcome", "m.top_lane_outcome"]
     )
-    hero_filter = ""
+    conditions: list[str] = []
     params: list = []
     if heroes:
         placeholders = ", ".join("?" * len(heroes))
-        hero_filter = f"WHERE LOWER(p.hero_name) IN ({placeholders})"
-        params = [h.lower() for h in heroes]
+        conditions.append(f"LOWER(p.hero_name) IN ({placeholders})")
+        params.extend(h.lower() for h in heroes)
         logger.info("Filtering to %d heroes: %s", len(heroes), ", ".join(sorted(heroes)))
+    if positions:
+        placeholders = ", ".join("?" * len(positions))
+        conditions.append(f"p.position IN ({placeholders})")
+        params.extend(positions)
+        logger.info("Filtering to positions: %s", ", ".join(sorted(positions)))
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     query = f"""
         SELECT {select_cols}
         FROM players p
         JOIN matches m ON p.match_id = m.match_id
-        {hero_filter}
+        {where}
         ORDER BY p.id
         {limit}
     """
@@ -187,9 +206,10 @@ def load_aligned(
         (labels_df["laneOutcome"] != "UNKNOWN")
     )
     n_before = len(labels_df)
-    labels_df = labels_df[mask].reset_index(drop=True)
-    ts_t = ts_t[mask.values]
-    sc_t = sc_t[mask.values]
+    mask_arr = mask.to_numpy()
+    labels_df = labels_df[mask_arr].reset_index(drop=True)
+    ts_t = torch.from_numpy(ts_arr[mask_arr])
+    sc_t = torch.from_numpy(sc_arr[mask_arr])
     logger.info("Filtered %d → %d rows (excluded %d with unknown hero/role/lane outcome).",
                 n_before, len(labels_df), n_before - len(labels_df))
 
@@ -354,6 +374,10 @@ def parse_args() -> argparse.Namespace:
                         help="Heroes to include. Either a comma-separated list (e.g. 'Invoker,Pudge,Luna') "
                              "or a path to a .txt file with one hero name per line. "
                              "Case-insensitive. If omitted, all heroes are included.")
+    parser.add_argument("--positions", type=str, default=None,
+                        help="Positions to include as a comma-separated list. "
+                             "Accepts numbers (e.g. '4,5') or full names (e.g. 'POSITION_4,POSITION_5'). "
+                             "If omitted, all positions are included.")
     parser.add_argument("--batch-size",  type=int, default=512)
     parser.add_argument("--n-neighbors", type=int, default=15)
     parser.add_argument("--min-dist",    type=float, default=0.1)
@@ -377,8 +401,10 @@ def main() -> None:
     else:
         heroes = None
 
+    positions = _normalise_positions(args.positions.split(",")) if args.positions else None
+
     model, ckpt = load_model(ckpt_path, device)
-    ts_t, sc_t, labels_df = load_aligned(data_path, args.max_players, ckpt, heroes=heroes)
+    ts_t, sc_t, labels_df = load_aligned(data_path, args.max_players, ckpt, heroes=heroes, positions=positions)
 
     logger.info("Encoding %d players …", len(ts_t))
     embeddings = build_embeddings(model, ts_t, sc_t, args.batch_size, device)

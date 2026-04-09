@@ -8,10 +8,14 @@ Tools for visualizing and evaluating learned SimCLR embeddings.
 
 | File | Description |
 |---|---|
-| `umap_embeddings.py` | UMAP of trained encoder embeddings (requires checkpoint) |
-| `umap_explorer.py` | UMAP of raw (pre-training) feature vectors |
-| `embedding_classifier.py` | Logistic regression + XGBoost classifiers on embeddings |
-| `feature_analysis.py` | Mutual-information feature importance analysis |
+| `umap_embeddings.py` | Interactive UMAP of trained encoder embeddings (requires checkpoint) |
+| `umap_explorer.py` | Interactive UMAP of raw (pre-training) feature vectors |
+| `embedding_analysis.ipynb` | Linear probing notebook — logistic regression + XGBoost on frozen embeddings |
+| `embedding_analysis.py` | CLI version of the above |
+| `nn_consistency.ipynb` | Nearest-neighbor label consistency check notebook |
+| `nn_consistency.py` | CLI version of the above |
+| `feature_analysis.ipynb` | Feature importance (mutual information) notebook |
+| `feature_analysis.py` | CLI version of the above |
 
 ---
 
@@ -67,18 +71,18 @@ python evaluation/umap_explorer.py --data ./data/matches --max-players 5000
 
 ---
 
-## embedding_classifier.py
+## embedding_analysis.py
 
 Trains logistic regression and/or XGBoost classifiers on top of frozen encoder embeddings to measure how linearly separable the learned representations are for position, hero, and lane outcome.
 
 ```bash
-python evaluation/embedding_classifier.py --data ./data/matches.db
-python evaluation/embedding_classifier.py --data ./data/matches.db --checkpoint ./checkpoints/checkpoint_best.pt
-python evaluation/embedding_classifier.py --data ./data/matches.db --model logreg
-python evaluation/embedding_classifier.py --data ./data/matches.db --model xgb --max-players 20000
+python evaluation/embedding_analysis.py --data ./data/matches.db
+python evaluation/embedding_analysis.py --data ./data/matches.db --checkpoint ./checkpoints/checkpoint_best.pt
+python evaluation/embedding_analysis.py --data ./data/matches.db --model logreg
+python evaluation/embedding_analysis.py --data ./data/matches.db --model xgb --max-players 20000
 ```
 
-Outputs accuracy, classification reports, and confusion-matrix PNGs saved to `./evaluation/analysis/`.
+Outputs accuracy, classification reports, and confusion-matrix PNGs saved to `./figures/`.
 
 ---
 
