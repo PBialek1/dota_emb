@@ -1,14 +1,18 @@
 # dota_emb
 
-Can a neural network learn what role a Dota 2 player is filling — without ever being told? This project trains a self-supervised encoder on raw laning-phase behavior and evaluates whether the learned representations organize players by role, lane outcome, and play style without any labels during training.
+Can a neural embedding capture the distinctive playstyles of heroes?
 
 ---
 
 ## Goal
 
-The central question is whether the *behavioral signature* of a player's laning phase — their movement, economy, combat, and positioning over 10 minutes — is distinctive enough that a model can learn a useful representation of it unsupervised.
+The goal was to find clustering in the embedding space that captures different playstyles in the laning stage ,
+not only hero and role, but also *how* a hero is played in a given role.
+An Io pos 5 is likely to sit close behind their carry in lane, providing regen to succeed in lane,
+while a Tusk pos 5 is more likely to play aggressively and possibly roam to other lanes.
 
-A SimCLR encoder is trained on 77k player time series from Divine-bracket matches. No role labels, no hero annotations, no outcome signals are used during training. After training, the embedding space is evaluated against ground-truth labels to measure how much structure the model recovered.
+A SimCLR encoder was trained on 77k player time series from Divine-bracket matches in patches 7.40 through 7.40c. No role labels, no hero annotations, no outcome signals were used during training. After training, the embedding space was evaluated against ground-truth labels to measure how much structure the model recovered.
+
 
 ---
 
@@ -16,8 +20,13 @@ A SimCLR encoder is trained on 77k player time series from Divine-bracket matche
 
 Each player's laning phase is represented as two components fed jointly into the encoder:
 
-- **Time series** — 18 feature channels × 40 time steps (one per 15 seconds, covering the first 10 minutes): gold, XP, damage dealt/taken, CS, tower damage, healing, health%, mana%, distance to nearest ally/enemy/tower, kills/deaths/assists/ability casts, allies/enemies nearby.
-- **Scalars** — 7 end-of-phase summary statistics: peak gold, XP, damage dealt/taken, CS, tower damage, healing.
+- **Time series**: 18 feature channels × 40 time steps (one per 15 seconds, covering the first 10 minutes): gold, XP, hero damage dealt/taken, CS, tower damage, healing, health%, mana%, distance to nearest ally/enemy/tower, kills/deaths/assists/ability casts, allies/enemies nearby.
+- **Scalars**: 7 end-of-phase summary statistics: peak gold, XP, hero damage dealt/taken, CS, tower damage, healing.
+
+![Damage Curves](figures/dmg_curves_1.png)
+![Health% Curves](figures/healthPct_curves_1.png)
+
+Plotting our normalized time series features by hero helps validate the data. Io's damage curve shows poor damage scaling, while Night Stalker has a distinctive elbow at the beginning of daytime. We can also see that Undying is able to reach health percentages above 100% from Decay and that Huskar tends to sit at a lower health percentage than other heroes.
 
 ### Feature importance
 
@@ -38,6 +47,18 @@ Key findings:
 
 **Model:** SimCLR (Chen et al., 2020). Two randomly augmented views of the same player's time series are treated as a positive pair. The encoder learns to agree on their representation while pushing apart all other players in the batch (NT-Xent loss). No labels are used at any point during training.
 
+**Augmentations:** Each view is produced by independently sampling the following pipeline:
+
+| Augmentation | What it does | Probability |
+|---|---|---|
+| Gaussian noise | Adds i.i.d. noise (σ=0.03) to all channels | 0.8 |
+| Feature masking | Zeros out randomly selected feature channels (15% channel drop rate) | 0.7 |
+| Scale jitter | Multiplies continuous channels (0–11) by independent random scale factors in [0.85, 1.15] | 0.6 |
+| Temporal shift | Rolls all channels along the time axis by ±1 step | 0.5 |
+| Timestep dropout | Zeros out randomly selected timestep columns (10% drop rate, max 3 of 40) | 0.5 |
+
+The augmentations are designed to simulate realistic measurement noise and partial observability while preserving the semantic content (role, lane, playstyle) that we want the encoder to be invariant to. Count channels (kills, deaths, assists, etc.) are excluded from scale jitter since scaling integer counts is not meaningful.
+
 **Architecture:**
 ```
 ts (18, 40) ──► Conv1d stack ──► AdaptiveAvgPool ──┐
@@ -54,9 +75,9 @@ scalars (7,) ──► Linear + BN ───────────────
 
 ## Evaluating the embeddings
 
-### Embeddings cluster by role without supervision
+### Nearest-neighbor consistency check
 
-Nearest-neighbor consistency check (k=25, cosine distance) on the full embedding space:
+Nearest-neighbor consistency (k=25, cosine distance) on the full embedding space. Per-role breakdown:
 
 | Position | Role | recall@25 | chance | enrichment |
 |---|---|---|---|---|
@@ -66,35 +87,70 @@ Nearest-neighbor consistency check (k=25, cosine distance) on the full embedding
 | POSITION_5 | Hard support | 0.498 | 0.200 | 2.49× |
 | POSITION_4 | Soft support | 0.494 | 0.200 | 2.47× |
 
-**Mean enrichment: 2.87×** — neighbors share your role nearly 3× more often than chance.
+Mean enrichment by label type:
 
-The results reveal a clear split between **coarse role structure** (well recovered) and **fine-grained role identity** (not recovered):
+| Label | Classes | Mean recall@25 | Mean enrichment |
+|---|---|---|---|
+| Hero | 128 | 0.070 | **12.84×** |
+| Coarse role (mid / side core / support) | 3 | 0.888 | **2.91×** |
+| Role / position | 5 | 0.573 | **2.87×** |
+| Lane outcome | 5 | 0.349 | **2.31×** |
+| Coarse lane outcome (win / loss / tie) | 3 | 0.502 | **1.47×** |
+| Match outcome | 2 | 0.522 | **1.04×** |
 
-- **Mid (pos 2)** is by far the most distinctive role (enrichment 4.17×). Its signature is unique: isolated 1v1 laning, a sharp individual XP curve, and no allied presence nearby.
-- **Safe carry (pos 1) and offlaner (pos 3)** are meaningfully separated from the rest (enrichment ~2.5–2.7×), but their laning patterns share enough overlap that they aren't sharply distinct from each other.
-- **Soft support (pos 4) and hard support (pos 5)** have nearly identical enrichment (~2.47–2.49×) and similar recall. The model can tell they are *supports* — they cluster together away from cores — but cannot reliably distinguish *which* support role. During the laning phase, both roles share the same lane, the same spatial signature, and similar economic profiles. **Intragroup variance within the support pairing outweighs the intergroup variance between pos 4 and pos 5**, leaving no behavioral signal for the model to separate them on.
 
-The conclusion is that the laning phase encodes enough structure to recover coarse role groupings (carry/mid/support) without supervision, but the 0–10 minute window does not contain enough differential signal to resolve fine-grained identity within those groups.
+**Role** is the most clearly encoded label. Coarse role and fine-grained role have nearly identical mean enrichment (2.91× vs 2.87×), which reveals a hierarchical structure: the model learned the three coarse groups (mid, side cores, supports) cleanly, and within each group the representations are essentially flat.
+
+**Lane outcome** enrichment (2.31×) is misleadingly high as a summary. The signal is concentrated almost entirely in the stomp outcomes. Regular wins and losses are much harder to separate. This is confirmed by the coarse version (1.47×): merging stomp outcomes into their regular counterparts collapses enrichment sharply, because it mixes the informative minority into a much larger, weakly-structured class.
+
+**Match outcome** (1.04×) is indistinguishable from random. Consistent with the feature importance finding that all raw features have near-zero NMI with match outcome.
+
+
+**Hero** enrichment (12.84x) is a misleading value since the chance baseline is so low (~.008). There is definitely some clustering going on, but inspecting the per-hero enrichment reveals that this number is held up by a small number of highly-clustered heroes.
+
+![Per-Hero Enrichment](figures/nn_hero_enrichment_hist.png)
 
 → Full analysis: [`evaluation/nn_consistency.ipynb`](evaluation/nn_consistency.ipynb)
 
 ### Linear probing on frozen embeddings
 
-Logistic regression and XGBoost classifiers trained on top of frozen SimCLR embeddings. Tests whether role and outcome information is linearly decodable from the representation. Confusion matrices saved to [`evaluation/analysis/`](evaluation/analysis/).
+Logistic regression and XGBoost classifiers were trained on top of frozen SimCLR embeddings. We see that the embeddings have excellent predictive power for distinguishing side lane cores, supports, and mids. However the models struggle to distinguish Safe carry (pos 1) from Offlaner (pos 3) and Soft support (pos 4) from Hard support (pos 5).
+
+![Confusion Matrix Position](figures/confusion_position_logreg.png)
 
 ### UMAP of the embedding space
 
-Interactive UMAP visualization (Panel/Bokeh app). Points colored by role, hero, lane outcome, etc. Legend entries are clickable to mute/isolate categories.
+Plotting out the embedding space in a UMAP projection reinforces our conclusions from the classification analysis:
+![UMAP Role Clustering](figures/role_clustering.png)
+We see very distinct clusters of mid players, support players, and side lane core players. However, there is very little distinction between the two support roles or between the two side core roles.
 
-<!-- Add UMAP screenshot here: figures/umap_position.png -->
+Does our embedding space capture the distinctive playstyles of different heroes?
+![UMAP Hero Clustering](figures/hero_clustering.png)
+If we restrict the embedding space to a smaller subset of heroes. We see distinct separation between the heroes with clear roles and playstyles, while Nature's Prophet, who is more versatile than the rest, as points scattered throughout the space.
+
+![UMAP Support Heroes](figures/support_heroes.png)
+Now if we look at only heroes traditionally played as supports (though with different laning strategies). Io and Treant are clustered apart from the rest, but that is explained by their ability to heal their laning partners. We also see some clustering on Jakiro, I'm not sure what explains that. For the rest, we see little to no separation.
+
+![UMAP Offlane Heroes](figures/offlane_heroes.png)
+Finally, if we look at traditional offlane heroes, we see a similar story. Necrophos is clustered away from the rest, again presumably because of his ability to heal teammates. The rest of the heroes are spread out pretty uniformly through the embedding space.
+
+---
+
+## Conclusion
+
+The laning phase contains enough behavioral signal for a self-supervised encoder to recover coarse role structure without any labels. The three broad groups, mid, side cores, and supports, are clearly separated in the embedding space. Within each group, fine-grained identity is not recoverable, which in hindsight makes a lot of sense. I know that I don't play pos 4 and pos 5 differently enough that they might be consistently separated by these features. Plus the sheer variety of lane matchups and their impacts on playstyle add too much noise to the data to be able to distinguish the roles.
+
+Overall I think it's clear that there's some geometry in this embedding space, but it's pretty noisy.
 
 ---
 
 ## What's next
 
-The laning phase (0–10 min) result is a clean baseline, but it has a structural limitation: roles that share a lane share a behavioral signature. The natural next question is whether the **post-laning phase (10–20 min)** contains more discriminative signal, since by that point supports and carries have diverged in movement patterns, farm distribution, and map presence.
+I have two ideas for further exploration:
+First, I think my features might be too coarse to capture some of the more subtle behaviors in lane. For example, pulling, dragging, or shoving waves probably wouldn't be represented by the existing features.
+Adding more features like distance to creep wave and perhaps distance to second closest enemy hero would help. Though I'm reluctant to add too many features based on domain knowledge since that might be forgetting the "Bitter Lesson".
 
-This is being investigated in the [`experiment/post-laning-10-20min`](../../tree/experiment/post-laning-10-20min) branch. The hypothesis is that role separation will improve for pos 4 vs pos 5 (they are now playing differently across the map) but may degrade for other dimensions as general teamfight behavior starts to converge across positions.
+Second, player behavior is pretty restricted in the laning phase. There's only so many ways you can play that part of the game when you are essentially restricted to a single lane. We might see the existing features have stronger descriptive power if we slide the time window from 0-10 minutes to 10-20 minutes.
 
 ---
 
