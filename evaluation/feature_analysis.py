@@ -62,7 +62,7 @@ SCALAR_FEATURES = [
     "maxCs", "maxTowerDamage", "maxHealing",
 ]
 LABEL_COLS = ["position", "lane", "team", "matchOutcome", "laneOutcome", "heroName", "bracket"]
-TARGETS    = ["matchOutcome", "position", "laneOutcome"]
+TARGETS    = ["matchOutcome", "position", "laneOutcome", "heroName"]
 
 # ---------------------------------------------------------------------------
 # Data loading (mirrors umap_explorer.py)

@@ -1,9 +1,3 @@
-# dota_emb
-
-Can a neural embedding capture the distinctive playstyles of heroes?
-
----
-
 ## Goal
 
 The goal was to find clustering in the embedding space that captures different playstyles in the laning stage ,
@@ -35,9 +29,10 @@ Before any model training, normalized mutual information (NMI = I(X;Y) / H(Y)) w
 ![Feature importance heatmap](figures/feature_importance.png)
 
 Key findings:
-- **Distance to nearest tower** (NMI ~0.59) and **distance to nearest ally** (NMI ~0.40) are the strongest individual predictors of role and lane.
-- **Gold and XP scalars** are secondary role predictors, reflecting farm accumulation differences between carries and supports.
-- **All features have weak predictive power for match outcome** (max NMI ~0.02), suggesting win/loss is determined by factors beyond the laning phase or not captured in these features alone.
+- **Distance to nearest tower** (NMI ~0.51) and **CS** (NMI ~0.38) are the strongest individual predictors of **role**. Distance to nearest ally (~0.27), gold (~0.29), and XP scalars (~0.26) are secondary.
+- **For lane outcome**, the story is different: **gold** is the top predictor (NMI ~0.12), followed by XP scalars (~0.07). Tower distance and CS, while strong role signals, have little lane outcome information (~0.04).
+- **Mana%** (NMI ~0.15) is the strongest individual predictor of **hero identity**, likely driven by heroes with distinctive mana patterns (e.g., mana-hungry heroes, innate regen).
+- **All features have weak predictive power for match outcome** (max NMI ~0.015), suggesting win/loss is not determined by individual laning features alone.
 
 → Full analysis: [`evaluation/feature_analysis.ipynb`](evaluation/feature_analysis.ipynb)
 
