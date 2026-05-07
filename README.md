@@ -74,7 +74,7 @@ scalars (7,) ──► Linear + BN ───────────────
 
 Nearest-neighbor consistency (k=25, cosine distance) on the full embedding space. Per-role breakdown:
 
-| Position | Role | recall@25 | chance | enrichment |
+| Position | Role | precision@25 | chance | enrichment |
 |---|---|---|---|---|
 | POSITION_2 | Mid | 0.833 | 0.200 | **4.17×** |
 | POSITION_1 | Safe carry | 0.539 | 0.200 | 2.70× |
@@ -84,7 +84,7 @@ Nearest-neighbor consistency (k=25, cosine distance) on the full embedding space
 
 Mean enrichment by label type:
 
-| Label | Classes | Mean recall@25 | Mean enrichment |
+| Label | Classes | Mean precision@25 | Mean enrichment |
 |---|---|---|---|
 | Hero | 128 | 0.070 | **12.84×** |
 | Coarse role (mid / side core / support) | 3 | 0.888 | **2.91×** |

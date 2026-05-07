@@ -8,9 +8,9 @@ If the geometry is meaningful, position-5 players should be reliably closest to
 other position-5 players far more often than the ~20% chance baseline.
 
 Outputs per-label summary tables:
-  - recall@k     : mean fraction of k-NN sharing the same label as the query
+  - precision@k     : mean fraction of k-NN sharing the same label as the query
   - chance       : base rate of that class in the dataset (random baseline)
-  - enrichment   : recall@k / chance  (1.0 = no better than random)
+  - enrichment   : precision@k / chance  (1.0 = no better than random)
   - n_queries    : number of query points for that class
 
 Usage:
@@ -66,10 +66,10 @@ def check_consistency(
     rng: np.random.Generator,
 ) -> dict[str, pd.DataFrame]:
     """
-    For each label column, compute per-class recall@k vs chance.
+    For each label column, compute per-class precision@k vs chance.
 
     Returns a dict mapping label name → DataFrame with columns:
-        class, recall_at_k, chance, enrichment, n_queries
+        class, precision_at_k, chance, enrichment, n_queries
     """
     n = len(embeddings)
     sample_idx = rng.choice(n, size=min(n_sample, n), replace=False)
@@ -97,7 +97,7 @@ def check_consistency(
         classes, counts = np.unique(all_labels, return_counts=True)
         class_freq = dict(zip(classes, counts / n))
 
-        # Per-query recall: fraction of k-NN with the same label
+        # Per-query precision: fraction of k-NN with the same label
         rows = []
         for cls in classes:
             cls_mask = query_labels == cls
@@ -105,14 +105,14 @@ def check_consistency(
                 continue
             cls_query_idx = np.where(cls_mask)[0]
             cls_neighbor_labels = all_labels[neighbor_indices[cls_query_idx]]  # (n_cls, k)
-            recall = (cls_neighbor_labels == cls).mean()
+            precision = (cls_neighbor_labels == cls).mean()
             chance = class_freq[cls]
             rows.append({
-                "class":       cls,
-                "recall_at_k": round(float(recall), 4),
-                "chance":      round(float(chance), 4),
-                "enrichment":  round(float(recall / chance) if chance > 0 else 0.0, 2),
-                "n_queries":   int(cls_mask.sum()),
+                "class":          cls,
+                "precision_at_k": round(float(precision), 4),
+                "chance":         round(float(chance), 4),
+                "enrichment":     round(float(precision / chance) if chance > 0 else 0.0, 2),
+                "n_queries":      int(cls_mask.sum()),
             })
 
         df = pd.DataFrame(rows).sort_values("enrichment", ascending=False).reset_index(drop=True)
@@ -127,13 +127,13 @@ def check_consistency(
 
 def print_results(results: dict[str, pd.DataFrame], k: int) -> None:
     for label, df in results.items():
-        mean_recall = df["recall_at_k"].mean()
-        mean_chance = df["chance"].mean()
-        mean_enrich = df["enrichment"].mean()
+        mean_precision = df["precision_at_k"].mean()
+        mean_chance    = df["chance"].mean()
+        mean_enrich    = df["enrichment"].mean()
 
         print(f"\n{'='*60}")
         print(f"  Label: {label}   (k={k})")
-        print(f"  Mean recall@{k}: {mean_recall:.3f}   "
+        print(f"  Mean precision@{k}: {mean_precision:.3f}   "
               f"Mean chance: {mean_chance:.3f}   "
               f"Mean enrichment: {mean_enrich:.2f}×")
         print(f"{'='*60}")
