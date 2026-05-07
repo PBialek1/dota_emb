@@ -28,7 +28,7 @@ load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from constants import LANING_SECONDS
+from constants import WINDOW_END
 from feature_builder import build_match
 from stratz_client import StratzClient
 
@@ -204,8 +204,8 @@ def backfill(
                 continue
 
             duration = match_node.get("durationSeconds") or 0
-            if duration < LANING_SECONDS:
-                logger.info("Match %d skipped: duration %ds < 600s", match_id, duration)
+            if duration < WINDOW_END:
+                logger.info("Match %d skipped: duration %ds < %ds", match_id, duration, WINDOW_END)
                 skipped += 1
                 pbar.update(1)
                 pbar.set_postfix(ok=success, failed=failed, skipped=skipped)

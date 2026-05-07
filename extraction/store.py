@@ -1,14 +1,13 @@
-"""store.py — Storage backends for extracted match data.
+"""store.py — Storage backends for raw-event match data.
 
-Two backends are available:
-
-    JsonStore   — writes one JSON file per match (original behaviour).
+Two backends:
+    JsonStore   — writes one JSON file per match.
     SqliteStore — writes match + player rows into a SQLite3 database.
 
-Both expose the same interface:
+Interface:
     store.exists(match_id) -> bool
     store.save(match_id, result_dict) -> None
-    store.close() -> None          # no-op for JsonStore
+    store.close() -> None
 """
 
 from __future__ import annotations
@@ -18,10 +17,6 @@ import sqlite3
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-
-# ---------------------------------------------------------------------------
-# Abstract base
-# ---------------------------------------------------------------------------
 
 class MatchStore(ABC):
     @abstractmethod
@@ -35,7 +30,7 @@ class MatchStore(ABC):
 
 
 # ---------------------------------------------------------------------------
-# JSON backend (original behaviour)
+# JSON backend
 # ---------------------------------------------------------------------------
 
 class JsonStore(MatchStore):
@@ -67,96 +62,67 @@ CREATE TABLE IF NOT EXISTS matches (
     duration_seconds    INTEGER,
     did_radiant_win     INTEGER,
     avg_mmr             INTEGER,
-    bracket             INTEGER,
+    bracket             TEXT,
     game_version_id     INTEGER,
-    bottom_lane_outcome   TEXT,
-    mid_lane_outcome      TEXT,
-    top_lane_outcome      TEXT,
-    lane_outcomes_fetched INTEGER NOT NULL DEFAULT 0
+    bottom_lane_outcome TEXT,
+    mid_lane_outcome    TEXT,
+    top_lane_outcome    TEXT
 );
 """
 
 _CREATE_PLAYERS = """
 CREATE TABLE IF NOT EXISTS players (
-    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id              INTEGER NOT NULL REFERENCES matches(match_id),
-    steam_account_id      INTEGER,
-    hero_id               INTEGER,
-    hero_name             TEXT,
-    position              TEXT,
-    lane                  TEXT,
-    team                  TEXT,
-    is_victory            INTEGER,
-    -- scalars
-    max_gold              INTEGER,
-    max_xp                INTEGER,
-    max_damage_dealt      INTEGER,
-    max_damage_taken      INTEGER,
-    max_cs                INTEGER,
-    max_tower_damage      INTEGER,
-    max_healing           INTEGER,
-    -- timeseries (JSON arrays, 10 elements each)
-    gold_norm             TEXT,
-    xp_norm               TEXT,
-    damage_dealt_norm     TEXT,
-    damage_taken_norm     TEXT,
-    cs_norm               TEXT,
-    tower_damage_norm     TEXT,
-    healing_norm          TEXT,
-    health_pct            TEXT,
-    mana_pct              TEXT,
-    dist_to_nearest_ally  TEXT,
-    dist_to_nearest_enemy TEXT,
-    dist_to_nearest_tower TEXT,
-    -- per-minute event counts (JSON arrays, 10 elements each)
-    kills                 TEXT,
-    deaths                TEXT,
-    assists               TEXT,
-    ability_casts         TEXT,
-    -- proximity counts (JSON arrays, 10 elements each)
-    allies_nearby         TEXT,
-    enemies_nearby        TEXT
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id         INTEGER NOT NULL REFERENCES matches(match_id),
+    steam_account_id INTEGER,
+    hero_id          INTEGER,
+    hero_name        TEXT,
+    position         TEXT,
+    lane             TEXT,
+    team             TEXT,
+    is_victory       INTEGER,
+    -- raw event sequences: JSON arrays, each element has "time" + event-specific fields
+    positions        TEXT,  -- [{time, x, y}, ...]
+    health           TEXT,  -- [{time, hp, maxHp, mp, maxMp}, ...]
+    gold             TEXT,  -- [{time, gold, networth}, ...]
+    xp               TEXT,  -- [{time, amount}, ...]
+    last_hits        TEXT,  -- [{time, npcId, isCreep, isNeutral, isAncient}, ...]
+    damage           TEXT,  -- [{time, attacker, target, value, ...}, ...]  damage this hero dealt
+    abilities        TEXT,  -- [{time, abilityId, attacker, target}, ...]
+    kills            TEXT,  -- [{time, attacker, target, gold, xp, ...}, ...]
+    deaths           TEXT,  -- [{time, attacker, goldFed, timeDead, ...}, ...]
+    assists          TEXT,  -- [{time, attacker, target, gold, xp, ...}, ...]
+    healing          TEXT,  -- [{time, attacker, target, value, ...}, ...]
+    tower_damage     TEXT,  -- [{time, npcId, damage, ...}, ...]
+    items            TEXT   -- [{time, itemId}, ...]
 );
 """
 
 _INSERT_MATCH = """
 INSERT OR IGNORE INTO matches
     (match_id, duration_seconds, did_radiant_win, avg_mmr, bracket, game_version_id,
-     bottom_lane_outcome, mid_lane_outcome, top_lane_outcome, lane_outcomes_fetched)
+     bottom_lane_outcome, mid_lane_outcome, top_lane_outcome)
 VALUES
     (:match_id, :duration_seconds, :did_radiant_win, :avg_mmr, :bracket, :game_version_id,
-     :bottom_lane_outcome, :mid_lane_outcome, :top_lane_outcome, 1);
+     :bottom_lane_outcome, :mid_lane_outcome, :top_lane_outcome);
 """
 
 _INSERT_PLAYER = """
 INSERT INTO players (
     match_id, steam_account_id, hero_id, hero_name,
     position, lane, team, is_victory,
-    max_gold, max_xp, max_damage_dealt, max_damage_taken,
-    max_cs, max_tower_damage, max_healing,
-    gold_norm, xp_norm, damage_dealt_norm, damage_taken_norm,
-    cs_norm, tower_damage_norm, healing_norm,
-    health_pct, mana_pct,
-    dist_to_nearest_ally, dist_to_nearest_enemy, dist_to_nearest_tower,
-    kills, deaths, assists, ability_casts,
-    allies_nearby, enemies_nearby
+    positions, health, gold, xp, last_hits,
+    damage, abilities, kills, deaths, assists, healing, tower_damage, items
 ) VALUES (
     :match_id, :steam_account_id, :hero_id, :hero_name,
     :position, :lane, :team, :is_victory,
-    :max_gold, :max_xp, :max_damage_dealt, :max_damage_taken,
-    :max_cs, :max_tower_damage, :max_healing,
-    :gold_norm, :xp_norm, :damage_dealt_norm, :damage_taken_norm,
-    :cs_norm, :tower_damage_norm, :healing_norm,
-    :health_pct, :mana_pct,
-    :dist_to_nearest_ally, :dist_to_nearest_enemy, :dist_to_nearest_tower,
-    :kills, :deaths, :assists, :ability_casts,
-    :allies_nearby, :enemies_nearby
+    :positions, :health, :gold, :xp, :last_hits,
+    :damage, :abilities, :kills, :deaths, :assists, :healing, :tower_damage, :items
 );
 """
 
 
 def _j(value) -> str:
-    """Serialize a list to a compact JSON string."""
     return json.dumps(value, separators=(",", ":"))
 
 
@@ -167,17 +133,6 @@ class SqliteStore(MatchStore):
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA foreign_keys=ON;")
         self._conn.executescript(_CREATE_MATCHES + _CREATE_PLAYERS)
-        # Migrate existing databases that predate lane outcome columns.
-        for col, definition in [
-            ("bottom_lane_outcome",   "TEXT"),
-            ("mid_lane_outcome",      "TEXT"),
-            ("top_lane_outcome",      "TEXT"),
-            ("lane_outcomes_fetched", "INTEGER NOT NULL DEFAULT 0"),
-        ]:
-            try:
-                self._conn.execute(f"ALTER TABLE matches ADD COLUMN {col} {definition}")
-            except sqlite3.OperationalError:
-                pass  # column already exists
         self._conn.commit()
 
     def exists(self, match_id: int) -> bool:
@@ -203,43 +158,28 @@ class SqliteStore(MatchStore):
 
         player_rows = []
         for p in result["players"]:
-            sc = p["scalars"]
-            ts = p["timeseries"]
-            ev = p["events"]
             player_rows.append({
-                "match_id":              match_id,
-                "steam_account_id":      p.get("steamAccountId"),
-                "hero_id":               p.get("heroId"),
-                "hero_name":             p.get("heroName", ""),
-                "position":              p.get("position"),
-                "lane":                  p.get("lane"),
-                "team":                  p.get("team"),
-                "is_victory":            int(bool(p.get("isVictory"))),
-                "max_gold":              sc.get("maxGold"),
-                "max_xp":               sc.get("maxXp"),
-                "max_damage_dealt":     sc.get("maxDamageDealt"),
-                "max_damage_taken":     sc.get("maxDamageTaken"),
-                "max_cs":               sc.get("maxCs"),
-                "max_tower_damage":     sc.get("maxTowerDamage"),
-                "max_healing":          sc.get("maxHealing"),
-                "gold_norm":            _j(ts.get("goldNorm", [])),
-                "xp_norm":              _j(ts.get("xpNorm", [])),
-                "damage_dealt_norm":    _j(ts.get("damageDealtNorm", [])),
-                "damage_taken_norm":    _j(ts.get("damageTakenNorm", [])),
-                "cs_norm":              _j(ts.get("csNorm", [])),
-                "tower_damage_norm":    _j(ts.get("towerDamageNorm", [])),
-                "healing_norm":         _j(ts.get("healingNorm", [])),
-                "health_pct":           _j(ts.get("healthPct", [])),
-                "mana_pct":             _j(ts.get("manaPct", [])),
-                "dist_to_nearest_ally": _j(ts.get("distToNearestAlly", [])),
-                "dist_to_nearest_enemy":_j(ts.get("distToNearestEnemy", [])),
-                "dist_to_nearest_tower":_j(ts.get("distToNearestTower", [])),
-                "kills":                _j(ev.get("kills", [])),
-                "deaths":               _j(ev.get("deaths", [])),
-                "assists":              _j(ev.get("assists", [])),
-                "ability_casts":        _j(ev.get("abilityCasts", [])),
-                "allies_nearby":        _j(p.get("alliesNearby", [])),
-                "enemies_nearby":       _j(p.get("enemiesNearby", [])),
+                "match_id":        match_id,
+                "steam_account_id": p.get("steamAccountId"),
+                "hero_id":         p.get("heroId"),
+                "hero_name":       p.get("heroName", ""),
+                "position":        p.get("position"),
+                "lane":            p.get("lane"),
+                "team":            p.get("team"),
+                "is_victory":      int(bool(p.get("isVictory"))),
+                "positions":       _j(p.get("positions", [])),
+                "health":          _j(p.get("health", [])),
+                "gold":            _j(p.get("gold", [])),
+                "xp":              _j(p.get("xp", [])),
+                "last_hits":       _j(p.get("lastHits", [])),
+                "damage":        _j(p.get("damage", [])),
+                "abilities":     _j(p.get("abilities", [])),
+                "kills":         _j(p.get("kills", [])),
+                "deaths":        _j(p.get("deaths", [])),
+                "assists":       _j(p.get("assists", [])),
+                "healing":       _j(p.get("healing", [])),
+                "tower_damage":  _j(p.get("towerDamage", [])),
+                "items":         _j(p.get("items", [])),
             })
 
         with self._conn:

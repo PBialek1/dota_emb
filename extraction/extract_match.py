@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 from feature_builder import build_match
 from store import JsonStore, SqliteStore, MatchStore
 from stratz_client import StratzClient
-from constants import LANING_SECONDS
+from constants import WINDOW_END
 
 load_dotenv()
 
@@ -90,8 +90,8 @@ def extract_match(
 
     # Skip short matches
     duration = match_node.get("durationSeconds") or 0
-    if duration < LANING_SECONDS:
-        _log_skipped(match_id, f"duration < 600s ({duration}s)")
+    if duration < WINDOW_END:
+        _log_skipped(match_id, f"duration < {WINDOW_END}s ({duration}s)")
         return False
 
     # Build features

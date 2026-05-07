@@ -46,27 +46,42 @@ query GetMatch($matchId: Long!) {
 
         playerUpdateGoldEvents { time gold networth }
 
-        abilityUsedEvents { time abilityId attacker target }
-
-        killEvents   { time attacker target }
-        deathEvents  { time attacker target goldFed timeDead }
-        assistEvents { time attacker target }
+        experienceEvents { time amount }
 
         csEvents {
           time npcId isCreep isNeutral isAncient
         }
 
         heroDamageEvents {
-          time attacker target value isSourceMainHero isTargetMainHero fromIllusion toIllusion
+          time attacker target value
+          byAbility byItem damageType
+          fromIllusion toIllusion
+          isPhysicalAttack isSourceMainHero isTargetMainHero
         }
 
-        towerDamageEvents { time damage }
+        abilityUsedEvents { time abilityId attacker target }
 
-        healEvents { time attacker target value }
+        killEvents {
+          time attacker target
+          byAbility byItem
+          gold xp positionX positionY
+          isSolo isGank
+        }
 
-        experienceEvents { time amount }
+        deathEvents {
+          time attacker target
+          byAbility byItem
+          goldFed xpFed timeDead goldLost
+          positionX positionY
+        }
 
-        runeEvents { time rune action }
+        assistEvents { time attacker target gold xp positionX positionY }
+
+        healEvents { time attacker target value byAbility byItem }
+
+        towerDamageEvents { time npcId damage byAbility byItem }
+
+        purchaseEvents { time itemId }
       }
     }
   }
