@@ -184,7 +184,10 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Model, optimizer, scheduler, loss
     # ------------------------------------------------------------------
-    model     = SimCLRModel(embed_dim=args.embed_dim).to(device)
+    sample_ts, _ = dataset[0]
+    in_channels = sample_ts.shape[0]
+    logger.info("Building model with in_channels=%d, T=%d", in_channels, sample_ts.shape[1])
+    model     = SimCLRModel(embed_dim=args.embed_dim, in_channels=in_channels).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs

@@ -12,7 +12,7 @@ LANING_SECONDS          = 600  # total laning phase duration (seconds)
 # Conversion from Dota 2 world units: STRATZ = (world + 8192) / 128
 # Empirically confirmed: Radiant fountain ≈ (74, 74), Dire fountain ≈ (180, 177).
 # 1500 world units (roughly one screen width) ≈ 12 STRATZ units.
-ALLY_ENEMY_RADIUS = 12  # STRATZ units — threshold for alliesNearby / enemiesNearby
+ALLY_SORT_BUCKET = 6  # bucket index for t=90s (6 × 15s) — used to establish ally/enemy ordering
 
 # Tier-1 tower positions converted to STRATZ coordinates via (world + 8192) / 128
 TOWER_POSITIONS = {

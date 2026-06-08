@@ -2,7 +2,9 @@
 
 SimCLR contrastive representation learning on Dota 2 laning-stage feature vectors.
 
-Each player's laning phase is represented as 18 feature channels × 40 × 15-second buckets, plus 7 scalar statistics. The model learns an embedding space where players with similar laning behaviors are close together, without any supervised labels.
+Each player's laning phase is represented as 28 feature channels × 40 × 15-second buckets, plus 7 scalar statistics. The 28 channels are: 9 normalized state/cumulative curves (gold, XP, damage dealt/taken, CS, tower damage, healing, health%, mana%), 4 per-ally + 5 per-enemy + 6 per-tower distance channels (ally/enemy slots ordered by proximity at t = 90 s), and 4 per-bucket event counts (kills, deaths, assists, ability casts). The model learns an embedding space where players with similar laning behaviors are close together, without any supervised labels.
+
+Features are not stored precomputed in the SQLite DB any more — the DB holds raw STRATZ event arrays and `LaningDataset` builds the (28, 40) tensor on the fly the first time you train, then writes a `<db>.features.npz` cache next to the DB so subsequent runs skip the build step.
 
 ---
 
@@ -13,11 +15,11 @@ Each player's laning phase is represented as 18 feature channels × 40 × 15-sec
 **Augmentations applied to the timeseries:**
 | Augmentation | Effect | Probability |
 |---|---|---|
-| Gaussian noise | Small i.i.d. perturbation | 0.8 |
+| Gaussian noise | Small i.i.d. perturbation (σ=0.03) | 0.8 |
 | Temporal shift | Roll channels ±1 step (±15 s) | 0.5 |
-| Feature mask | Zero out random feature channels | 0.7 |
-| Scale jitter | Multiply continuous channels by ∈ [0.85, 1.15] | 0.6 |
-| Timestep dropout | Zero out up to 3 complete timestep columns | 0.5 |
+| Feature mask | Zero out random feature channels (15% per channel) | 0.7 |
+| Scale jitter | Multiply continuous channels 0–23 by ∈ [0.85, 1.15] (event counts left alone) | 0.6 |
+| Timestep dropout | Zero out random timestep columns (10% drop rate, capped at 30% of timesteps) | 0.5 |
 
 Scalar features (maxGold, maxXp, …) are treated as invariant context and are not augmented.
 
@@ -26,10 +28,10 @@ Scalar features (maxGold, maxXp, …) are treated as invariant context and are n
 ## Architecture
 
 ```
-Input: ts (18, 40) + scalars (7,)
+Input: ts (C, 40) + scalars (7,)            (C = 28 with the current feature layout)
           │                 │
    TimeseriesBranch    ScalarBranch
-   Conv1d(18→64)       Linear(7→32)
+   Conv1d(C→64)        Linear(7→32)
    Conv1d(64→128)      BN + ReLU
    Conv1d(128→256)          │
    AdaptiveAvgPool          │
@@ -46,7 +48,7 @@ Input: ts (18, 40) + scalars (7,)
                    z  ← L2-normalized; used only for NT-Xent loss
 ```
 
-Default `embed_dim=256`, projection dim=128.
+Default `embed_dim=256`, projection dim=128. `in_channels` is a constructor parameter on `SimCLRModel` / `LaningEncoder` / `TimeseriesBranch`; `train.py` reads it from the first dataset sample so the model auto-adapts if the feature layout changes again.
 
 ---
 
@@ -102,10 +104,13 @@ import torch
 import pickle
 from training.model import SimCLRModel
 
-# Load model
+# Load model — infer in_channels from the saved weights so old (18-channel)
+# and new (28-channel) checkpoints both load without manual configuration.
 ckpt = torch.load("checkpoints/checkpoint_best.pt", map_location="cpu")
-model = SimCLRModel(embed_dim=ckpt["args"]["embed_dim"])
-model.load_state_dict(ckpt["model_state_dict"])
+state = ckpt["model_state_dict"]
+in_channels = state["encoder.ts_branch.conv.0.0.weight"].shape[1]
+model = SimCLRModel(embed_dim=ckpt["args"]["embed_dim"], in_channels=in_channels)
+model.load_state_dict(state)
 model.eval()
 
 # Load normalizers

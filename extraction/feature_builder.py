@@ -1,16 +1,26 @@
 """feature_builder.py — Transforms a raw STRATZ match node into the output schema."""
 
 import logging
+from bisect import bisect_left
 
 from constants import (
     LANING_INTERVALS,
     LANING_INTERVAL_SECONDS,
     LANING_SECONDS,
-    ALLY_ENEMY_RADIUS,
-    RADIANT_TOWERS,
-    DIRE_TOWERS,
+    ALLY_SORT_BUCKET,
+    TOWER_POSITIONS,
     euclidean,
 )
+
+# Fixed tower ordering used for all players (indices 0–5 are stable across time)
+ALL_TOWERS = [
+    TOWER_POSITIONS["radiant_top_t1"],
+    TOWER_POSITIONS["radiant_mid_t1"],
+    TOWER_POSITIONS["radiant_bot_t1"],
+    TOWER_POSITIONS["dire_top_t1"],
+    TOWER_POSITIONS["dire_mid_t1"],
+    TOWER_POSITIONS["dire_bot_t1"],
+]
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +36,42 @@ def _bucket(t: int) -> int | None:
 
 
 def _closest_event(events: list[dict], target_time: float, key: str = "time") -> dict | None:
-    """Return the event whose `key` field is closest to target_time, or None."""
+    """Return the event whose `key` field is closest to target_time, or None.
+
+    For repeated lookups on the same (sorted) event list, prefer
+    `_closest_event_indexer(events)` which extracts the key array once and
+    uses bisect for O(log N) lookups instead of an O(N) min scan.
+    """
     if not events:
         return None
     return min(events, key=lambda e: abs((e.get(key) or 0) - target_time))
+
+
+def _closest_event_indexer(events: list[dict], key: str = "time"):
+    """
+    Build a fast closest-event lookup over a list of events whose `key` field
+    is already monotonically non-decreasing (as guaranteed by `_laning_events`).
+
+    Returns a function `lookup(target_time) -> event | None` that uses bisect
+    for O(log N) lookup.
+    """
+    if not events:
+        return lambda _t: None
+    times = [(e.get(key) or 0) for e in events]
+    n = len(times)
+
+    def lookup(target_time):
+        i = bisect_left(times, target_time)
+        if i == 0:
+            return events[0]
+        if i == n:
+            return events[n - 1]
+        before, after = events[i - 1], events[i]
+        if abs(times[i - 1] - target_time) <= abs(times[i] - target_time):
+            return before
+        return after
+
+    return lookup
 
 
 def _laning_events(events: list[dict] | None) -> list[dict]:
@@ -133,6 +175,7 @@ def _build_state_curves(health_events: list[dict]) -> tuple[list[float], list[fl
     Returns (healthPct[10], manaPct[10]).
     """
     events = _laning_events(health_events)
+    lookup = _closest_event_indexer(events)
     health_pct: list[float] = []
     mana_pct:   list[float] = []
 
@@ -140,7 +183,7 @@ def _build_state_curves(health_events: list[dict]) -> tuple[list[float], list[fl
 
     for n in range(LANING_INTERVALS):
         midpoint = n * LANING_INTERVAL_SECONDS + LANING_INTERVAL_SECONDS // 2
-        e = _closest_event(events, midpoint)
+        e = lookup(midpoint)
         if e and e.get("maxHp") and e["maxHp"] > 0:
             last_hp = e["hp"] / e["maxHp"]
         if e and e.get("maxMp") and e["maxMp"] > 0:
@@ -161,12 +204,13 @@ def _position_snapshots(pos_events: list[dict]) -> list[tuple[float, float] | No
     Forward-fill dead time with last known position.
     """
     events = _laning_events(pos_events)
+    lookup = _closest_event_indexer(events)
     snapshots: list[tuple[float, float] | None] = []
     last_pos: tuple[float, float] | None = None
 
     for n in range(LANING_INTERVALS):
         midpoint = n * LANING_INTERVAL_SECONDS + LANING_INTERVAL_SECONDS // 2
-        e = _closest_event(events, midpoint)
+        e = lookup(midpoint)
         if e and e.get("x") is not None and e.get("y") is not None:
             last_pos = (float(e["x"]), float(e["y"]))
         snapshots.append(last_pos)
@@ -196,57 +240,56 @@ def _count_per_minute(events: list[dict]) -> list[int]:
 # ---------------------------------------------------------------------------
 
 def _compute_positional_features(
-    all_snapshots: list[list[tuple[float, float] | None]],  # [player_idx][minute]
-    radiant_flags: list[bool],  # True if player is Radiant
-    tower_lists: list[list[tuple[float, float]]],  # [player_idx] → their team's towers
+    all_snapshots: list[list[tuple[float, float] | None]],  # [player_idx][bucket]
+    radiant_flags: list[bool],
 ) -> tuple[
-    list[list[float]],   # distToNearestAlly  [player][minute]
-    list[list[float]],   # distToNearestEnemy [player][minute]
-    list[list[float]],   # distToNearestTower [player][minute]
-    list[list[int]],     # alliesNearby       [player][minute]
-    list[list[int]],     # enemiesNearby      [player][minute]
+    list[list[list[float]]],  # dist_allies  [player][rank 0–3][bucket]
+    list[list[list[float]]],  # dist_enemies [player][rank 0–4][bucket]
+    list[list[list[float]]],  # dist_towers  [player][tower 0–5][bucket]
 ]:
     n_players = len(all_snapshots)
-    dist_ally   = [[0.0] * LANING_INTERVALS for _ in range(n_players)]
-    dist_enemy  = [[0.0] * LANING_INTERVALS for _ in range(n_players)]
-    dist_tower  = [[0.0] * LANING_INTERVALS for _ in range(n_players)]
-    cnt_ally    = [[0]   * LANING_INTERVALS for _ in range(n_players)]
-    cnt_enemy   = [[0]   * LANING_INTERVALS for _ in range(n_players)]
+    N_ALLIES  = 4
+    N_ENEMIES = 5
+    N_TOWERS  = len(ALL_TOWERS)  # 6
+
+    # Establish ally/enemy ordering at ALLY_SORT_BUCKET (t=90s).
+    # Players with no position at that bucket fall back to last known snapshot
+    # (forward-fill is already applied by _position_snapshots), then to inf distance.
+    sort_pos = [all_snapshots[p][ALLY_SORT_BUCKET] for p in range(n_players)]
+
+    ally_orders:  list[list[int]] = []
+    enemy_orders: list[list[int]] = []
+    for p in range(n_players):
+        p90 = sort_pos[p]
+        allies  = [q for q in range(n_players) if q != p and radiant_flags[q] == radiant_flags[p]]
+        enemies = [q for q in range(n_players) if radiant_flags[q] != radiant_flags[p]]
+        if p90 is not None:
+            allies  = sorted(allies,  key=lambda q, ref=p90: euclidean(ref, sort_pos[q]) if sort_pos[q] else float("inf"))
+            enemies = sorted(enemies, key=lambda q, ref=p90: euclidean(ref, sort_pos[q]) if sort_pos[q] else float("inf"))
+        ally_orders.append(allies)
+        enemy_orders.append(enemies)
+
+    dist_allies  = [[[0.0] * LANING_INTERVALS for _ in range(N_ALLIES)]  for _ in range(n_players)]
+    dist_enemies = [[[0.0] * LANING_INTERVALS for _ in range(N_ENEMIES)] for _ in range(n_players)]
+    dist_towers  = [[[0.0] * LANING_INTERVALS for _ in range(N_TOWERS)]  for _ in range(n_players)]
 
     for step in range(LANING_INTERVALS):
-        positions = [all_snapshots[p][step] for p in range(n_players)]
-
         for p in range(n_players):
-            pos = positions[p]
+            pos = all_snapshots[p][step]
             if pos is None:
                 continue
+            for rank, q in enumerate(ally_orders[p]):
+                qpos = all_snapshots[q][step]
+                if qpos is not None:
+                    dist_allies[p][rank][step] = round(euclidean(pos, qpos), 1)
+            for rank, q in enumerate(enemy_orders[p]):
+                qpos = all_snapshots[q][step]
+                if qpos is not None:
+                    dist_enemies[p][rank][step] = round(euclidean(pos, qpos), 1)
+            for t_idx, tower_pos in enumerate(ALL_TOWERS):
+                dist_towers[p][t_idx][step] = round(euclidean(pos, tower_pos), 1)
 
-            ally_dists  = []
-            enemy_dists = []
-
-            for q in range(n_players):
-                if p == q:
-                    continue
-                qpos = positions[q]
-                if qpos is None:
-                    continue
-                d = euclidean(pos, qpos)
-                if radiant_flags[p] == radiant_flags[q]:
-                    ally_dists.append(d)
-                    if d <= ALLY_ENEMY_RADIUS:
-                        cnt_ally[p][step] += 1
-                else:
-                    enemy_dists.append(d)
-                    if d <= ALLY_ENEMY_RADIUS:
-                        cnt_enemy[p][step] += 1
-
-            dist_ally[p][step]  = round(min(ally_dists),  1) if ally_dists  else 0.0
-            dist_enemy[p][step] = round(min(enemy_dists), 1) if enemy_dists else 0.0
-
-            towers = tower_lists[p]
-            dist_tower[p][step] = round(min(euclidean(pos, t) for t in towers), 1)
-
-    return dist_ally, dist_enemy, dist_tower, cnt_ally, cnt_enemy
+    return dist_allies, dist_enemies, dist_towers
 
 
 # ---------------------------------------------------------------------------
@@ -290,21 +333,16 @@ def build_match(
             (p.get("playbackData") or {}).get("heroDamageEvents") or []
         )
 
-    # Build tower lists per player
-    tower_lists: list[list[tuple[float, float]]] = [
-        RADIANT_TOWERS if radiant_flags[i] else DIRE_TOWERS
-        for i in range(len(players_raw))
-    ]
-
-    # Collect per-minute position snapshots for all players (for cross-player calcs)
+    # Collect per-bucket position snapshots for all players (for cross-player calcs)
     all_snapshots: list[list[tuple[float, float] | None]] = []
     for p in players_raw:
         pb = p.get("playbackData") or {}
         all_snapshots.append(_position_snapshots(pb.get("playerUpdatePositionEvents") or []))
 
-    # Compute positional features across all players simultaneously
-    dist_ally, dist_enemy, dist_tower, cnt_ally, cnt_enemy = _compute_positional_features(
-        all_snapshots, radiant_flags, tower_lists
+    # Compute positional features across all players simultaneously.
+    # Ally/enemy ordering is fixed by distance at ALLY_SORT_BUCKET (t=90s).
+    dist_allies, dist_enemies, dist_towers = _compute_positional_features(
+        all_snapshots, radiant_flags
     )
 
     # ------------------------------------------------------------------
@@ -382,27 +420,40 @@ def build_match(
                     "maxHealing":     int(max_heal),
                 },
                 "timeseries": {
-                    "goldNorm":             [round(v, 4) for v in gold_norm],
-                    "xpNorm":               [round(v, 4) for v in xp_norm],
-                    "damageDealtNorm":      [round(v, 4) for v in dealt_norm],
-                    "damageTakenNorm":      [round(v, 4) for v in taken_norm],
-                    "csNorm":               [round(v, 4) for v in cs_norm],
-                    "towerDamageNorm":      [round(v, 4) for v in tower_norm],
-                    "healingNorm":          [round(v, 4) for v in heal_norm],
-                    "healthPct":            health_pct,
-                    "manaPct":              mana_pct,
-                    "distToNearestAlly":    dist_ally[i],
-                    "distToNearestEnemy":   dist_enemy[i],
-                    "distToNearestTower":   dist_tower[i],
+                    "goldNorm":        [round(v, 4) for v in gold_norm],
+                    "xpNorm":          [round(v, 4) for v in xp_norm],
+                    "damageDealtNorm": [round(v, 4) for v in dealt_norm],
+                    "damageTakenNorm": [round(v, 4) for v in taken_norm],
+                    "csNorm":          [round(v, 4) for v in cs_norm],
+                    "towerDamageNorm": [round(v, 4) for v in tower_norm],
+                    "healingNorm":     [round(v, 4) for v in heal_norm],
+                    "healthPct":       health_pct,
+                    "manaPct":         mana_pct,
+                    # Per-ally distances (order fixed by proximity at t=90s; index 0 = closest)
+                    "distToAlly0":     dist_allies[i][0],
+                    "distToAlly1":     dist_allies[i][1],
+                    "distToAlly2":     dist_allies[i][2],
+                    "distToAlly3":     dist_allies[i][3],
+                    # Per-enemy distances (same ordering convention)
+                    "distToEnemy0":    dist_enemies[i][0],
+                    "distToEnemy1":    dist_enemies[i][1],
+                    "distToEnemy2":    dist_enemies[i][2],
+                    "distToEnemy3":    dist_enemies[i][3],
+                    "distToEnemy4":    dist_enemies[i][4],
+                    # Per-tower distances: Radiant top/mid/bot (0–2), Dire top/mid/bot (3–5)
+                    "distToTower0":    dist_towers[i][0],
+                    "distToTower1":    dist_towers[i][1],
+                    "distToTower2":    dist_towers[i][2],
+                    "distToTower3":    dist_towers[i][3],
+                    "distToTower4":    dist_towers[i][4],
+                    "distToTower5":    dist_towers[i][5],
                 },
                 "events": {
-                    "kills":         kills_pm,
-                    "deaths":        deaths_pm,
-                    "assists":       assists_pm,
-                    "abilityCasts":  ability_casts_pm,
+                    "kills":        kills_pm,
+                    "deaths":       deaths_pm,
+                    "assists":      assists_pm,
+                    "abilityCasts": ability_casts_pm,
                 },
-                "alliesNearby":  cnt_ally[i],
-                "enemiesNearby": cnt_enemy[i],
             }
         )
 

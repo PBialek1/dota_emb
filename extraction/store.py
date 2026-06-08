@@ -105,17 +105,29 @@ CREATE TABLE IF NOT EXISTS players (
     healing_norm          TEXT,
     health_pct            TEXT,
     mana_pct              TEXT,
-    dist_to_nearest_ally  TEXT,
-    dist_to_nearest_enemy TEXT,
-    dist_to_nearest_tower TEXT,
-    -- per-minute event counts (JSON arrays, 10 elements each)
+    -- per-ally distances, order fixed by proximity at t=90s (index 0 = closest ally)
+    dist_to_ally_0        TEXT,
+    dist_to_ally_1        TEXT,
+    dist_to_ally_2        TEXT,
+    dist_to_ally_3        TEXT,
+    -- per-enemy distances, same ordering convention
+    dist_to_enemy_0       TEXT,
+    dist_to_enemy_1       TEXT,
+    dist_to_enemy_2       TEXT,
+    dist_to_enemy_3       TEXT,
+    dist_to_enemy_4       TEXT,
+    -- per-tower distances: Radiant top/mid/bot (0–2), Dire top/mid/bot (3–5)
+    dist_to_tower_0       TEXT,
+    dist_to_tower_1       TEXT,
+    dist_to_tower_2       TEXT,
+    dist_to_tower_3       TEXT,
+    dist_to_tower_4       TEXT,
+    dist_to_tower_5       TEXT,
+    -- per-bucket event counts (JSON arrays)
     kills                 TEXT,
     deaths                TEXT,
     assists               TEXT,
-    ability_casts         TEXT,
-    -- proximity counts (JSON arrays, 10 elements each)
-    allies_nearby         TEXT,
-    enemies_nearby        TEXT
+    ability_casts         TEXT
 );
 """
 
@@ -137,9 +149,10 @@ INSERT INTO players (
     gold_norm, xp_norm, damage_dealt_norm, damage_taken_norm,
     cs_norm, tower_damage_norm, healing_norm,
     health_pct, mana_pct,
-    dist_to_nearest_ally, dist_to_nearest_enemy, dist_to_nearest_tower,
-    kills, deaths, assists, ability_casts,
-    allies_nearby, enemies_nearby
+    dist_to_ally_0, dist_to_ally_1, dist_to_ally_2, dist_to_ally_3,
+    dist_to_enemy_0, dist_to_enemy_1, dist_to_enemy_2, dist_to_enemy_3, dist_to_enemy_4,
+    dist_to_tower_0, dist_to_tower_1, dist_to_tower_2, dist_to_tower_3, dist_to_tower_4, dist_to_tower_5,
+    kills, deaths, assists, ability_casts
 ) VALUES (
     :match_id, :steam_account_id, :hero_id, :hero_name,
     :position, :lane, :team, :is_victory,
@@ -148,9 +161,10 @@ INSERT INTO players (
     :gold_norm, :xp_norm, :damage_dealt_norm, :damage_taken_norm,
     :cs_norm, :tower_damage_norm, :healing_norm,
     :health_pct, :mana_pct,
-    :dist_to_nearest_ally, :dist_to_nearest_enemy, :dist_to_nearest_tower,
-    :kills, :deaths, :assists, :ability_casts,
-    :allies_nearby, :enemies_nearby
+    :dist_to_ally_0, :dist_to_ally_1, :dist_to_ally_2, :dist_to_ally_3,
+    :dist_to_enemy_0, :dist_to_enemy_1, :dist_to_enemy_2, :dist_to_enemy_3, :dist_to_enemy_4,
+    :dist_to_tower_0, :dist_to_tower_1, :dist_to_tower_2, :dist_to_tower_3, :dist_to_tower_4, :dist_to_tower_5,
+    :kills, :deaths, :assists, :ability_casts
 );
 """
 
@@ -231,15 +245,25 @@ class SqliteStore(MatchStore):
                 "healing_norm":         _j(ts.get("healingNorm", [])),
                 "health_pct":           _j(ts.get("healthPct", [])),
                 "mana_pct":             _j(ts.get("manaPct", [])),
-                "dist_to_nearest_ally": _j(ts.get("distToNearestAlly", [])),
-                "dist_to_nearest_enemy":_j(ts.get("distToNearestEnemy", [])),
-                "dist_to_nearest_tower":_j(ts.get("distToNearestTower", [])),
-                "kills":                _j(ev.get("kills", [])),
-                "deaths":               _j(ev.get("deaths", [])),
-                "assists":              _j(ev.get("assists", [])),
-                "ability_casts":        _j(ev.get("abilityCasts", [])),
-                "allies_nearby":        _j(p.get("alliesNearby", [])),
-                "enemies_nearby":       _j(p.get("enemiesNearby", [])),
+                "dist_to_ally_0":  _j(ts.get("distToAlly0", [])),
+                "dist_to_ally_1":  _j(ts.get("distToAlly1", [])),
+                "dist_to_ally_2":  _j(ts.get("distToAlly2", [])),
+                "dist_to_ally_3":  _j(ts.get("distToAlly3", [])),
+                "dist_to_enemy_0": _j(ts.get("distToEnemy0", [])),
+                "dist_to_enemy_1": _j(ts.get("distToEnemy1", [])),
+                "dist_to_enemy_2": _j(ts.get("distToEnemy2", [])),
+                "dist_to_enemy_3": _j(ts.get("distToEnemy3", [])),
+                "dist_to_enemy_4": _j(ts.get("distToEnemy4", [])),
+                "dist_to_tower_0": _j(ts.get("distToTower0", [])),
+                "dist_to_tower_1": _j(ts.get("distToTower1", [])),
+                "dist_to_tower_2": _j(ts.get("distToTower2", [])),
+                "dist_to_tower_3": _j(ts.get("distToTower3", [])),
+                "dist_to_tower_4": _j(ts.get("distToTower4", [])),
+                "dist_to_tower_5": _j(ts.get("distToTower5", [])),
+                "kills":           _j(ev.get("kills", [])),
+                "deaths":          _j(ev.get("deaths", [])),
+                "assists":         _j(ev.get("assists", [])),
+                "ability_casts":   _j(ev.get("abilityCasts", [])),
             })
 
         with self._conn:

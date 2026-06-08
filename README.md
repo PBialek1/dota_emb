@@ -14,7 +14,10 @@ A SimCLR encoder was trained on 77k player time series from Divine-bracket match
 
 Each player's laning phase is represented as two components fed jointly into the encoder:
 
-- **Time series**: 18 feature channels × 40 time steps (one per 15 seconds, covering the first 10 minutes): gold, XP, hero damage dealt/taken, CS, tower damage, healing, health%, mana%, distance to nearest ally/enemy/tower, kills/deaths/assists/ability casts, allies/enemies nearby.
+- **Time series**: 28 feature channels × 40 time steps (one per 15 seconds, covering the first 10 minutes):
+  - 9 normalized state / cumulative curves: gold, XP, hero damage dealt/taken, CS, tower damage, healing, health%, mana%.
+  - 15 per-target distance channels in STRATZ coords: distance to each ally (4), each enemy (5), and each tier-1 tower (6). Ally/enemy slots are ordered by proximity at t=90 s so the same index refers to the same teammate across the laning phase.
+  - 4 per-bucket event counts: kills, deaths, assists, ability casts.
 - **Scalars**: 7 end-of-phase summary statistics: peak gold, XP, hero damage dealt/taken, CS, tower damage, healing.
 
 ![Damage Curves](figures/dmg_curves_1.png)
@@ -48,15 +51,15 @@ Key findings:
 |---|---|---|
 | Gaussian noise | Adds i.i.d. noise (σ=0.03) to all channels | 0.8 |
 | Feature masking | Zeros out randomly selected feature channels (15% channel drop rate) | 0.7 |
-| Scale jitter | Multiplies continuous channels (0–11) by independent random scale factors in [0.85, 1.15] | 0.6 |
+| Scale jitter | Multiplies continuous channels (0–23) by independent random scale factors in [0.85, 1.15] | 0.6 |
 | Temporal shift | Rolls all channels along the time axis by ±1 step | 0.5 |
-| Timestep dropout | Zeros out randomly selected timestep columns (10% drop rate, max 3 of 40) | 0.5 |
+| Timestep dropout | Zeros out randomly selected timestep columns (10% drop rate, capped at 30% of timesteps) | 0.5 |
 
-The augmentations are designed to simulate realistic measurement noise and partial observability while preserving the semantic content (role, lane, playstyle) that we want the encoder to be invariant to. Count channels (kills, deaths, assists, etc.) are excluded from scale jitter since scaling integer counts is not meaningful.
+The augmentations are designed to simulate realistic measurement noise and partial observability while preserving the semantic content (role, lane, playstyle) that we want the encoder to be invariant to. Event-count channels (kills, deaths, assists, ability casts) are excluded from scale jitter since scaling integer counts is not meaningful.
 
 **Architecture:**
 ```
-ts (18, 40) ──► Conv1d stack ──► AdaptiveAvgPool ──┐
+ts (28, 40) ──► Conv1d stack ──► AdaptiveAvgPool ──┐
 scalars (7,) ──► Linear + BN ──────────────────────┴──► Linear ──► h (256-dim embedding)
                                                                         │
                                                               ProjectionHead (MLP)
@@ -185,6 +188,8 @@ python extraction/extract_match.py \
     --store sqlite --db ./data/matches.db
 ```
 
+The SQLite store now keeps each player's raw STRATZ event arrays (positions, health, gold, xp, last hits, damage, abilities, kills, deaths, assists, healing, tower damage). The 28-channel feature tensor is built on the fly at training time and cached to `data/matches.features.npz` next to the DB, so subsequent runs skip the feature-build step. `LaningDataset` auto-detects the schema and also still accepts the older precomputed-features layout used in `archive/v2/matches.db`.
+
 ### 3. Train
 
 ```bash
@@ -192,6 +197,8 @@ python training/train.py \
     --data ./data/matches.db \
     --epochs 250 --batch-size 512 --lr 5e-4
 ```
+
+The first run computes features (~3 min for ~10k matches) and writes the feature cache; later runs load from the cache in milliseconds. Deleting `data/matches.features.npz` forces a rebuild.
 
 ### 4. Evaluate
 

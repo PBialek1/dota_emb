@@ -45,10 +45,11 @@ logger = logging.getLogger(__name__)
 TS_FEATURES = [
     "goldNorm", "xpNorm", "damageDealtNorm", "damageTakenNorm",
     "csNorm", "towerDamageNorm", "healingNorm", "healthPct", "manaPct",
-    "distToNearestAlly", "distToNearestEnemy", "distToNearestTower",
+    "distToAlly0", "distToAlly1", "distToAlly2", "distToAlly3",
+    "distToEnemy0", "distToEnemy1", "distToEnemy2", "distToEnemy3", "distToEnemy4",
+    "distToTower0", "distToTower1", "distToTower2", "distToTower3", "distToTower4", "distToTower5",
 ]
 EVENT_FEATURES = ["kills", "deaths", "assists", "abilityCasts"]
-PROX_FEATURES  = ["alliesNearby", "enemiesNearby"]
 SCALAR_FEATURES = [
     "maxGold", "maxXp", "maxDamageDealt", "maxDamageTaken",
     "maxCs", "maxTowerDamage", "maxHealing",
@@ -119,10 +120,6 @@ def _flatten_player_json(player: dict, meta: dict) -> dict:
         for i, v in enumerate(vals):
             row[f"{col}_{i}"] = float(v or 0)
 
-    for col in PROX_FEATURES:
-        vals = player.get(col) or [0] * 10
-        for i, v in enumerate(vals):
-            row[f"{col}_{i}"] = float(v or 0)
 
     lane = player.get("lane") or "UNKNOWN"
     team = player.get("team") or "UNKNOWN"
@@ -174,15 +171,16 @@ _TS_DB_MAP = {
     "healing_norm":           "healingNorm",
     "health_pct":             "healthPct",
     "mana_pct":               "manaPct",
-    "dist_to_nearest_ally":   "distToNearestAlly",
-    "dist_to_nearest_enemy":  "distToNearestEnemy",
-    "dist_to_nearest_tower":  "distToNearestTower",
-    "kills":                  "kills",
-    "deaths":                 "deaths",
-    "assists":                "assists",
-    "ability_casts":          "abilityCasts",
-    "allies_nearby":          "alliesNearby",
-    "enemies_nearby":         "enemiesNearby",
+    "dist_to_ally_0":  "distToAlly0",   "dist_to_ally_1":  "distToAlly1",
+    "dist_to_ally_2":  "distToAlly2",   "dist_to_ally_3":  "distToAlly3",
+    "dist_to_enemy_0": "distToEnemy0",  "dist_to_enemy_1": "distToEnemy1",
+    "dist_to_enemy_2": "distToEnemy2",  "dist_to_enemy_3": "distToEnemy3",
+    "dist_to_enemy_4": "distToEnemy4",
+    "dist_to_tower_0": "distToTower0",  "dist_to_tower_1": "distToTower1",
+    "dist_to_tower_2": "distToTower2",  "dist_to_tower_3": "distToTower3",
+    "dist_to_tower_4": "distToTower4",  "dist_to_tower_5": "distToTower5",
+    "kills":           "kills",         "deaths":          "deaths",
+    "assists":         "assists",       "ability_casts":   "abilityCasts",
 }
 
 _SCALAR_DB_MAP = {
@@ -207,9 +205,10 @@ def load_sqlite_store(db_path: Path, max_players: int | None) -> pd.DataFrame:
             p.gold_norm, p.xp_norm, p.damage_dealt_norm, p.damage_taken_norm,
             p.cs_norm, p.tower_damage_norm, p.healing_norm,
             p.health_pct, p.mana_pct,
-            p.dist_to_nearest_ally, p.dist_to_nearest_enemy, p.dist_to_nearest_tower,
+            p.dist_to_ally_0, p.dist_to_ally_1, p.dist_to_ally_2, p.dist_to_ally_3,
+            p.dist_to_enemy_0, p.dist_to_enemy_1, p.dist_to_enemy_2, p.dist_to_enemy_3, p.dist_to_enemy_4,
+            p.dist_to_tower_0, p.dist_to_tower_1, p.dist_to_tower_2, p.dist_to_tower_3, p.dist_to_tower_4, p.dist_to_tower_5,
             p.kills, p.deaths, p.assists, p.ability_casts,
-            p.allies_nearby, p.enemies_nearby,
             m.bracket, m.match_id,
             m.bottom_lane_outcome, m.mid_lane_outcome, m.top_lane_outcome
         FROM players p
@@ -261,7 +260,7 @@ def load_sqlite_store(db_path: Path, max_players: int | None) -> pd.DataFrame:
 # Expanded timeseries column names (e.g. "goldNorm_0" … "goldNorm_9")
 _TS_COLS = {
     f"{feat}_{i}"
-    for feat in TS_FEATURES + EVENT_FEATURES + PROX_FEATURES
+    for feat in TS_FEATURES + EVENT_FEATURES
     for i in range(10)
 }
 

@@ -29,10 +29,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "training"))
 from model import SimCLRModel
-from dataset import (
-    _safe_list, _TS_DB_COLS, _SCALAR_DB_COLS, _TS_CHAN,
-    N_TS_CHANNELS, N_TIMESTEPS,
-)
+from dataset import LaningDataset
 
 import umap
 
@@ -87,11 +84,8 @@ def _derive_lane_outcome(lane: str, team: str, bottom, mid, top) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Unified data loader — features + labels in one aligned query
+# Unified data loader — features (from cache) + labels in aligned row order
 # ---------------------------------------------------------------------------
-
-_TS_COLS     = list(_TS_DB_COLS.keys())     # 18 timeseries DB column names
-_SCALAR_COLS = list(_SCALAR_DB_COLS.keys()) # 7 scalar DB column names
 
 
 def _normalise_positions(raw: list[str]) -> list[str]:
@@ -106,6 +100,32 @@ def _normalise_positions(raw: list[str]) -> list[str]:
     return out
 
 
+def _load_labels(db_path: Path, player_ids: np.ndarray) -> pd.DataFrame:
+    """Fetch label columns for every cached sample and return them reordered
+    to match `player_ids`. One SELECT — no `IN (?, ?, ...)` to avoid the
+    SQLite parameter limit at ~100k samples.
+    """
+    conn = sqlite3.connect(str(db_path))
+    try:
+        df_all = pd.read_sql_query(
+            """
+            SELECT p.id AS player_id,
+                   p.position, p.lane, p.team, p.is_victory, p.hero_name,
+                   p.match_id,
+                   m.bracket,
+                   m.bottom_lane_outcome, m.mid_lane_outcome, m.top_lane_outcome
+            FROM players p
+            JOIN matches m ON p.match_id = m.match_id
+            """,
+            conn,
+        )
+    finally:
+        conn.close()
+    # Reindex to (and so reorder by) the cache's player_ids.
+    df = df_all.set_index("player_id").reindex(player_ids).reset_index()
+    return df
+
+
 def load_aligned(
     db_path: Path,
     max_players: int | None,
@@ -113,64 +133,83 @@ def load_aligned(
     heroes: list[str] | None = None,
     positions: list[str] | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, pd.DataFrame]:
-    """Single SQL query → (ts_tensor, scalar_tensor, labels_df) all in the same row order.
+    """Returns (ts_tensor, scalar_tensor, labels_df) all aligned to the same
+    row order. Features come from the LaningDataset cache (recomputed if
+    missing); labels are joined back via the cached `player_id` array.
 
-    Uses ORDER BY p.id for a deterministic, reproducible row order and applies
-    the checkpoint's saved normalizers so features match training exactly.
-
-    Args:
-        heroes:    optional list of hero names to include (case-insensitive).
-        positions: optional list of positions to include (e.g. ['POSITION_4', 'POSITION_5']).
+    Applies the checkpoint's saved normalizers so features match training.
     """
-    conn = sqlite3.connect(str(db_path))
-    limit = f"LIMIT {max_players}" if max_players else ""
-    select_cols = ", ".join(
-        [f"p.{c}" for c in _TS_COLS + _SCALAR_COLS]
-        + ["p.position", "p.lane", "p.team", "p.is_victory", "p.hero_name",
-           "m.bracket", "m.match_id",
-           "m.bottom_lane_outcome", "m.mid_lane_outcome", "m.top_lane_outcome"]
-    )
-    conditions: list[str] = []
-    params: list = []
+    logger.info("Loading features from %s (via LaningDataset cache) …", db_path)
+    ds = LaningDataset(db_path)
+    if ds.player_ids.size == 0:
+        logger.info("Cache is missing player_ids; backfilling from %s …", db_path)
+        if not ds.ensure_player_ids(db_path):
+            raise RuntimeError(
+                "Could not backfill player_ids — cache and DB disagree. "
+                "Rebuild by deleting the .features.npz file next to the DB."
+            )
+    player_ids = ds.player_ids
+    ts_arr = np.stack(ds._ts_list).astype(np.float32, copy=False)   # (N, C, T)
+    sc_arr = np.stack(ds._scalar_list).astype(np.float32, copy=False)  # (N, 7)
+    n_samples = ts_arr.shape[0]
+    logger.info("Got %d cached samples (shape %s).", n_samples, ts_arr.shape[1:])
+
+    # Pull label columns for the cached player_ids, in the same order.
+    df = _load_labels(db_path, player_ids)
+    if df["player_id"].isna().any():
+        n_missing = int(df["player_id"].isna().sum())
+        logger.warning(
+            "%d cached samples had no matching DB row — cache may be stale.",
+            n_missing,
+        )
+
+    # Normalize label fields up front
+    df["position"]  = df["position"].fillna("UNKNOWN")
+    df["lane"]      = df["lane"].fillna("UNKNOWN")
+    df["team"]      = df["team"].fillna("UNKNOWN")
+    df["isVictory"] = df["is_victory"].map({1: "Win", 0: "Loss"}).fillna("Unknown")
+    df["heroName"]  = df["hero_name"].fillna("Unknown")
+    df["bracket"]   = df["bracket"].fillna("Unknown").astype(str)
+    df["laneOutcome"] = [
+        _derive_lane_outcome(lane, team, bot, mid, top)
+        for lane, team, bot, mid, top in zip(
+            df["lane"], df["team"],
+            df["bottom_lane_outcome"], df["mid_lane_outcome"], df["top_lane_outcome"],
+        )
+    ]
+    df["matchId"] = df["match_id"]
+
+    # Build the filter mask: hero/position filters, then drop unknowns.
+    keep = np.ones(n_samples, dtype=bool)
     if heroes:
-        placeholders = ", ".join("?" * len(heroes))
-        conditions.append(f"LOWER(p.hero_name) IN ({placeholders})")
-        params.extend(h.lower() for h in heroes)
+        wanted = {h.lower() for h in heroes}
+        keep &= df["heroName"].str.lower().isin(wanted).to_numpy()
         logger.info("Filtering to %d heroes: %s", len(heroes), ", ".join(sorted(heroes)))
     if positions:
-        placeholders = ", ".join("?" * len(positions))
-        conditions.append(f"p.position IN ({placeholders})")
-        params.extend(positions)
+        keep &= df["position"].isin(positions).to_numpy()
         logger.info("Filtering to positions: %s", ", ".join(sorted(positions)))
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    query = f"""
-        SELECT {select_cols}
-        FROM players p
-        JOIN matches m ON p.match_id = m.match_id
-        {where}
-        ORDER BY p.id
-        {limit}
-    """
-    logger.info("Loading aligned features + labels from %s …", db_path)
-    df_raw = pd.read_sql_query(query, conn, params=params)
-    conn.close()
-    logger.info("Loaded %d rows.", len(df_raw))
+    keep &= (df["heroName"] != "Unknown").to_numpy()
+    keep &= (df["position"] != "UNKNOWN").to_numpy()
+    keep &= (df["laneOutcome"] != "UNKNOWN").to_numpy()
 
-    # Build (N, 18, 10) timeseries array
-    ts_arr = np.zeros((len(df_raw), N_TS_CHANNELS, N_TIMESTEPS), dtype=np.float32)
-    for col_name in _TS_COLS:
-        feat_name = _TS_DB_COLS[col_name]
-        chan = _TS_CHAN[feat_name]
-        parsed = df_raw[col_name].apply(_safe_list)
-        for row_idx, vals in enumerate(parsed):
-            ts_arr[row_idx, chan] = vals
+    # Cap to max_players (applied after filtering, preserving DB order).
+    if max_players is not None and keep.sum() > max_players:
+        kept_idx = np.where(keep)[0][:max_players]
+        keep = np.zeros(n_samples, dtype=bool)
+        keep[kept_idx] = True
 
-    # Build (N, 7) scalar array
-    sc_arr = df_raw[_SCALAR_COLS].fillna(0).values.astype(np.float32)
+    n_before = n_samples
+    ts_arr = ts_arr[keep]
+    sc_arr = sc_arr[keep]
+    df = df[keep].reset_index(drop=True)
+    logger.info(
+        "Filtered %d → %d rows (dropped %d via hero/position/unknown filters and cap).",
+        n_before, len(df), n_before - len(df),
+    )
 
-    # Apply checkpoint normalizers (identical to training preprocessing)
-    ts_mean: np.ndarray = ckpt["ts_mean"]   # shape (18,)
-    ts_std:  np.ndarray = ckpt["ts_std"]    # shape (18,)
+    # Apply checkpoint normalizers (identical to training preprocessing).
+    ts_mean: np.ndarray = ckpt["ts_mean"]   # shape (C,)
+    ts_std:  np.ndarray = ckpt["ts_std"]    # shape (C,)
     std_safe = np.where(ts_std > 0, ts_std, 1.0)
     ts_arr = (ts_arr - ts_mean[None, :, None]) / std_safe[None, :, None]
     ts_arr = np.nan_to_num(ts_arr, nan=0.0, posinf=0.0, neginf=0.0)
@@ -181,38 +220,8 @@ def load_aligned(
     ts_t = torch.from_numpy(ts_arr)
     sc_t = torch.from_numpy(sc_arr)
 
-    # Build labels DataFrame
-    df_raw["position"]  = df_raw["position"].fillna("UNKNOWN")
-    df_raw["lane"]      = df_raw["lane"].fillna("UNKNOWN")
-    df_raw["team"]      = df_raw["team"].fillna("UNKNOWN")
-    df_raw["isVictory"] = df_raw["is_victory"].map({1: "Win", 0: "Loss"}).fillna("Unknown")
-    df_raw["heroName"]  = df_raw["hero_name"].fillna("Unknown")
-    df_raw["bracket"]   = df_raw["bracket"].fillna("Unknown").astype(str)
-    df_raw["laneOutcome"] = [
-        _derive_lane_outcome(lane, team, bot, mid, top)
-        for lane, team, bot, mid, top in zip(
-            df_raw["lane"], df_raw["team"],
-            df_raw["bottom_lane_outcome"], df_raw["mid_lane_outcome"], df_raw["top_lane_outcome"],
-        )
-    ]
-    df_raw["matchId"] = df_raw["match_id"]
-    labels_df = df_raw[["position", "lane", "team", "isVictory", "heroName",
-                         "bracket", "laneOutcome", "matchId"]].reset_index(drop=True)
-
-    # Filter out rows where hero, role (position), or lane outcome is unknown
-    mask = (
-        (labels_df["heroName"] != "Unknown") &
-        (labels_df["position"] != "UNKNOWN") &
-        (labels_df["laneOutcome"] != "UNKNOWN")
-    )
-    n_before = len(labels_df)
-    mask_arr = mask.to_numpy()
-    labels_df = labels_df[mask_arr].reset_index(drop=True)
-    ts_t = torch.from_numpy(ts_arr[mask_arr])
-    sc_t = torch.from_numpy(sc_arr[mask_arr])
-    logger.info("Filtered %d → %d rows (excluded %d with unknown hero/role/lane outcome).",
-                n_before, len(labels_df), n_before - len(labels_df))
-
+    labels_df = df[["position", "lane", "team", "isVictory", "heroName",
+                    "bracket", "laneOutcome", "matchId"]].reset_index(drop=True)
     return ts_t, sc_t, labels_df
 
 
@@ -227,10 +236,18 @@ def load_model(checkpoint_path: Path, device: torch.device):
         getattr(args, "embed_dim", 256) if not isinstance(args, dict)
         else args.get("embed_dim", 256)
     )
-    model = SimCLRModel(embed_dim=embed_dim)
-    model.load_state_dict(ckpt["model_state_dict"])
+    # Infer in_channels from the first conv weight in the encoder, so an old
+    # 18-channel checkpoint loads without us having to know that out of band.
+    state = ckpt["model_state_dict"]
+    first_conv_key = "encoder.ts_branch.conv.0.0.weight"
+    in_channels = int(state[first_conv_key].shape[1]) if first_conv_key in state else 28
+    model = SimCLRModel(embed_dim=embed_dim, in_channels=in_channels)
+    model.load_state_dict(state)
     model.to(device).eval()
-    logger.info("Loaded checkpoint (epoch %d, embed_dim=%d).", ckpt.get("epoch", "?"), embed_dim)
+    logger.info(
+        "Loaded checkpoint (epoch %s, embed_dim=%d, in_channels=%d).",
+        ckpt.get("epoch", "?"), embed_dim, in_channels,
+    )
     return model, ckpt
 
 

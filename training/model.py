@@ -3,7 +3,7 @@
 Architecture overview:
 
   LaningEncoder
-  ├── TimeseriesBranch  : Conv1d stack over (18, 10) timeseries → 256-dim
+  ├── TimeseriesBranch  : Conv1d stack over (C, T) timeseries → 256-dim
   ├── ScalarBranch      : MLP over (7,) scalars → 32-dim
   └── FusionHead        : Linear(288 → embed_dim) → embed_dim-dim embedding h
 
@@ -13,6 +13,9 @@ Architecture overview:
     forward(ts, scalars) → (h, z_normalized)
       h : (B, embed_dim) — use this for downstream tasks / visualization
       z : (B, 128)       — L2-normalized; used only for NT-Xent loss during training
+
+C (input channels) and T (timesteps) are configurable; defaults match the
+current dataset (28 channels × 40 buckets). See `dataset.TS_KEYS` for layout.
 """
 
 from __future__ import annotations
@@ -35,24 +38,23 @@ def _conv_block(in_ch: int, out_ch: int, kernel: int = 3) -> nn.Sequential:
 
 
 class TimeseriesBranch(nn.Module):
-    """1-D CNN encoder for the (18, 10) timeseries tensor.
+    """1-D CNN encoder for the (C, T) timeseries tensor.
 
-    Input : (B, 18, 10)
+    Input : (B, in_channels, T)
     Output: (B, 256)
     """
 
-    def __init__(self):
+    def __init__(self, in_channels: int = 28):
         super().__init__()
         self.conv = nn.Sequential(
-            _conv_block(18,  64),   # (B, 64,  10)
-            _conv_block(64,  128),  # (B, 128, 10)
-            _conv_block(128, 256),  # (B, 256, 10)
+            _conv_block(in_channels, 64),   # (B, 64,  T)
+            _conv_block(64,          128),  # (B, 128, T)
+            _conv_block(128,         256),  # (B, 256, T)
         )
         self.pool = nn.AdaptiveAvgPool1d(1)  # (B, 256, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, 18, 10)
-        out = self.conv(x)          # (B, 256, 10)
+        out = self.conv(x)          # (B, 256, T)
         out = self.pool(out)        # (B, 256, 1)
         return out.squeeze(-1)      # (B, 256)
 
@@ -84,14 +86,14 @@ class LaningEncoder(nn.Module):
     """
     Encodes a (ts, scalars) pair into a fixed-size embedding vector h.
 
-    Input : ts=(B, 18, 10), scalars=(B, 7)
+    Input : ts=(B, in_channels, T), scalars=(B, 7)
     Output: h=(B, embed_dim)
     """
 
-    def __init__(self, embed_dim: int = 256):
+    def __init__(self, embed_dim: int = 256, in_channels: int = 28):
         super().__init__()
-        self.ts_branch     = TimeseriesBranch()   # → (B, 256)
-        self.scalar_branch = ScalarBranch()        # → (B, 32)
+        self.ts_branch     = TimeseriesBranch(in_channels=in_channels)   # → (B, 256)
+        self.scalar_branch = ScalarBranch()                              # → (B, 32)
         self.fusion = nn.Sequential(
             nn.Linear(256 + 32, embed_dim),
             nn.BatchNorm1d(embed_dim),
@@ -144,9 +146,9 @@ class SimCLRModel(nn.Module):
       - Use h for downstream tasks, UMAP visualization, and similarity search.
     """
 
-    def __init__(self, embed_dim: int = 256, proj_dim: int = 128):
+    def __init__(self, embed_dim: int = 256, proj_dim: int = 128, in_channels: int = 28):
         super().__init__()
-        self.encoder    = LaningEncoder(embed_dim=embed_dim)
+        self.encoder    = LaningEncoder(embed_dim=embed_dim, in_channels=in_channels)
         self.projection = ProjectionHead(embed_dim=embed_dim, proj_dim=proj_dim)
 
     def forward(
